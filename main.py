@@ -23,8 +23,8 @@ else:
 
 import yaml
 
-from lit_nf import TransGan
-from plotting import plotting
+from train import ProGamer
+# from plotting import plotting
 
 # from comet_ml import Experiment
 
@@ -36,7 +36,7 @@ def train(config,  load_ckpt=False, i=0, root=None):
     # hyperopt:whether to optimizer hyper parameters - load_ckpt: path to checkpoint if used
     data_module = JetNetDataloader(config)  # this loads the data
     data_module.setup("training")
-    model = TransGan(
+    model = ProGamer(
         config,  data_module.num_batches
     )  # the sets up the model,  config are hparams we want to optimize
     model.data_module = data_module
@@ -129,9 +129,7 @@ if __name__ == "__main__":
     with open(best_hparam, 'r') as stream:
         config=yaml.load(stream,Loader=yaml.Loader)
         config=config["config"]
-    delete=['autoreg',"disc","fc","quantile"]
-    for key in delete:
-        config.pop(key, None)
+
     hyperopt=True
     config["parton"] =parton
     config = {
@@ -147,14 +145,12 @@ if __name__ == "__main__":
         "ratio": 1,
         "l_dim": 25,
         "no_hidden_gen": False,
-        "no_hidden": False,
         "hidden": 1024,
         "max_epochs": 3600,
-        "name": "plsdontbebetter",
+        "name": "ProGamer",
         "n_part": 30,
         "n_dim": 3,
         "heads": 5,
-        "wgan": False,
         "flow_prior": True,
         "load_ckpt": "/beegfs/desy/user/kaechben/pointflow_q/epoch=49-val_fpnd=182.38-val_w1m=0.0148-val_w1efp=0.000054-val_w1p=0.00501.ckpt",
         "swa":True,
@@ -181,19 +177,14 @@ if __name__ == "__main__":
         config["opt"]=np.random.choice(["Adam","RMSprop"])#"AdamW","mixed"
         config["lr_g"]=np.random.choice([0.0003,0.0001])  
         config["ratio"]=np.random.choice([0.9,1,1.1,])
-        config["bn"]=np.random.choice([False])
+        config["bn"]=np.random.choice([False,True])
         config["normfirst"]=np.random.choice([True])
-        
         
         config["add_corr"]=np.random.choice([True])
         config["swa"]=np.random.choice([True,False])
         config["swagen"]=np.random.choice([True,False])
 
         config["num_layers"]=np.random.choice([4])
-        # if config["num_layers"]>6:
-        #     config["hidden"]=np.random.choice([256,128])
-        #     config["l_dim"]=np.random.choice([6,8])
-        # else:
         config["l_dim"]=np.random.choice([25,15,30])
         config["hidden"]=np.random.choice([512,756,1024])
         config["heads"]=np.random.choice([4,5])
@@ -209,11 +200,9 @@ if __name__ == "__main__":
         config["frac_pretrain"]=0.05
         config["load_ckpt"]= "/beegfs/desy/user/kaechben/pointflow_q/epoch=49-val_fpnd=182.38-val_w1m=0.0148-val_w1efp=0.000054-val_w1p=0.00501.ckpt"
     else:
-        # config["last_clf"]=True
-        # config["gen_mask"]=True
+
         print("hyperopt off"*100)
         config["name"]="bestever_"+parton#config["parton"]
-        #config["freq"]=6    # config["opt"]="Adam"
 
     if len(sys.argv) > 2:
         root = "/beegfs/desy/user/"+ os.environ["USER"]+"/"+config["name"]+"/"+config["parton"]+"_" +"run"+sys.argv[1]+"_"+str(sys.argv[2])
