@@ -9,7 +9,7 @@
 #SBATCH --error=%j.err                # File to which STDERR will be written
 #SBATCH --mail-type=END                           # Type of email notification- BEGIN,END,FAIL,ALL
 #SBATCH --mail-user=max.muster@desy.de            # Email to which notifications will be sent. It defaults to <userid@mail.desy.de> if none is set.
-export WANDB_API_KEY=f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
+
 unset LD_PRELOAD
 source /etc/profile.d/modules.sh
 module purge
@@ -17,7 +17,7 @@ module load maxwell gcc/9.3
 module load anaconda3/5.2
 . conda-init
 conda activate jetnet2
-wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
+wandb login $WANDB_API_KEY
 
 # nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
 
@@ -67,9 +67,9 @@ wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
 #     sleep 5
 # done
 
-path=JetNet_NF
+path=ProGamer
 POSTFIX=$(date -d "today" +"%d_%H_%M")
 echo $POSTFIX
-cp /home/$USER/$path/LitJetNet/LitNF/lit_nf.py /beegfs/desy/user/kaechben/code/lit_nf_${POSTFIX}.py
-cp /home/$USER/$path/LitJetNet/LitNF/main.py /beegfs/desy/user/kaechben/code/main_${POSTFIX}.py
-python -u /home/$USER/$path/LitJetNet/LitNF/main.py
+cp /home/$USER/$path/train.py /beegfs/desy/user/kaechben/code/train_${POSTFIX}.py
+cp /home/$USER/$path/main.py /beegfs/desy/user/kaechben/code/main_${POSTFIX}.py
+python -u /home/$USER/$path/main.py
