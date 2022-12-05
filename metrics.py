@@ -3,6 +3,7 @@ from os.path import exists
 from scipy import linalg
 from scipy.stats import iqr
 from scipy.optimize import curve_fit
+import numpy as np
 def linear(x, intercept, slope):
     return intercept + slope * x
 def _calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
@@ -113,14 +114,14 @@ def fpd_infinity(
     params, covs = curve_fit(linear, 1 / batches, vals, bounds=([0, 0], [np.inf, np.inf]))
 
     return (params[0], np.sqrt(np.diag(covs)[0]))
-def fgd(real_scaled,fake_scaled,n):
-    gen_efps = jetnet.utils.efps(fake_scaled.detach().numpy(), efpset_args=[("d<=", 4)], efp_jobs=None)
-    efp_file =f"efps_"+config["parton"]_+str(n)+".npy"
+def fgd(real_scaled,fake_scaled,n,p):
+    gen_efps = jetnet.utils.efps(real_scaled.detach().numpy(), efpset_args=[("d<=", 4)], efp_jobs=None)
+    efp_file =f"/beegfs/desy/user/kaechben/efps/"+p+"_"+str(n)+".npy"
     if exists(efp_file):
         real_efps = np.load(efp_file)
     else:
         real_efps = jetnet.utils.efps(
-            true_scaled.detach().numpy(), efpset_args=[("d<=", 4)], efp_jobs=None
+            real_scaled.detach().numpy(), efpset_args=[("d<=", 4)], efp_jobs=None
         )
         np.save(efp_file, real_efps)
 
