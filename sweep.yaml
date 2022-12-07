@@ -1,0 +1,48 @@
+program: main.py
+method: bayes
+metric:
+  name: fpnd
+  goal: minimize
+parameters:
+  lr_g:
+    distribution: log_uniform
+    min: -5
+    max: -3
+  num_layers:
+    distribution: int_uniform
+    min: 2
+    max: 6
+  hidden:
+    distribution: int_uniform
+    min: 128
+    max: 1024
+  sched:
+    distribution: categorical
+    values:
+      - "linear"
+      - "cosine2"
+  dropout:
+    min: 0.0
+    max: 0.4
+  heads:
+    distribution: int_uniform
+    min: 1
+    max: 8
+  opt:
+    distribution: categorical
+    values: ["Adam", "RMSprop"]
+  "swa":
+    values: [True, False]
+  "flow_prior":
+    values: [True, False]
+  "add_corr":
+    values: [True, False]
+  "swagen":
+    values: [True, False]
+  "add_corr":
+    values: [True, False]
+  "fc_disc":
+    values: [True, False]
+  "cls":
+    values: [True, False]
+  
