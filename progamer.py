@@ -165,16 +165,20 @@ class ProGamer(pl.LightningModule):
         assert mask.dtype==torch.bool
         self.flow.eval()
         with torch.no_grad():
-            if self.config["add_corr"]:
-            #print("start flow sample")
+            if self.config["flow_prior"]:
+                
+                #print("start flow sample")
                 z = self.flow.sample(len(batch)*batch.shape[1]).reshape(len(batch), 
                 batch.shape[1], self.n_dim)
             else:
                 z = torch.normal(torch.zeros(batch.shape,device=batch.device),torch.ones(batch.shape,device=batch.device))
+
             #print("end")
         #print("start trans sample")
-        
-        fake = z + self.gen_net(z, mask=mask)
+        if self.config["add_corr"]:
+            fake = z + self.gen_net(z, mask=mask)
+        else:
+            fake=self.gen_net(z,mask)
         #print("end")
 
         # fake = fake*((~mask).reshape(len(batch),30,1).float()) #somehow this gives nangrad
@@ -246,13 +250,10 @@ class ProGamer(pl.LightningModule):
         
         """training loop of the model, here all the data is passed forward to a gaussian
         This is the important part what is happening here. This is all the training we do"""
-        if not self.global_step==0:
-            mask = batch[:, self.n_part*self.n_dim:self.n_part*self.n_dim+self.n_current].bool()
-            batch = batch[:, :self.n_current*self.n_dim]
-            batch = batch.reshape(len(batch), self.n_current, self.n_dim)
-        else:
-            mask=batch[:,self.n_part*self.n_dim:].bool()
-            batch=batch[:,:self.n_part*self.n_dim].reshape(len(batch), self.n_part, self.n_dim)
+        
+        mask = batch[:, self.n_current*self.n_dim:].bool()
+        batch = batch[:, :self.n_current*self.n_dim]
+        batch = batch.reshape(len(batch), self.n_current, self.n_dim)
         batch[mask]=0
         opt_d, opt_g = self.optimizers()
         if self.config["sched"]:
@@ -285,10 +286,9 @@ class ProGamer(pl.LightningModule):
                 self.plot.plot_scores(pred_real.detach().cpu().numpy(),pred_fake.detach().cpu().numpy(),train=True,step=self.current_epoch)
                 
         if not self.train_gen and self.d_losses.mean()<0.1:
-            
-                self.train_gen=True
-                self.log("n_current",self.n_current)
-                print("start training gen with {} particles".format(self.n_current))
+            self.train_gen=True
+            self.log("n_current",self.n_current)
+            print("start training gen with {} particles".format(self.n_current))
         
         self.log("Training/d_loss", d_loss, logger=True, prog_bar=False,on_step=True)
         if self.global_step < 2:
@@ -314,13 +314,14 @@ class ProGamer(pl.LightningModule):
             
             if self.global_step < 3:
                 print("passed test gen")
+
             # Control plot train
             
 
     def validation_step(self, batch, batch_idx):
         """This calculates some important metrics on the hold out set (checking for overtraining)"""
         #print("start val")
-        mask = batch[:, self.n_part*self.n_dim:self.n_part*self.n_dim+self.n_current].bool().cpu()
+        mask = batch[:, self.n_current*self.n_dim:].bool().cpu()
         batch = batch[:, :self.n_current*self.n_dim].cpu()
                 
         self.dis_net.train()
@@ -336,8 +337,8 @@ class ProGamer(pl.LightningModule):
         with torch.no_grad():
             # logprob = -self.flow.log_prob(batch).mean() / 90
             batch = batch.reshape(len(batch),self.n_current,self.n_dim)
-
-            gen, fake_scaled, true_scaled, z_scaled = self.sampleandscale(batch,mask_test, 
+            #TODO CHange this back to its right mask_test
+            gen, fake_scaled, true_scaled, z_scaled = self.sampleandscale(batch,mask, 
             scale=True)
             #print("end sampling")
             #mask_test
@@ -347,10 +348,11 @@ class ProGamer(pl.LightningModule):
             scores_real = self.dis_net(batch, mask=mask)
             scores_fake = self.dis_net(gen, mask=mask)
             #print("end scores")
+        #TODO CHange this back to its right mask_test
         
         true_scaled[mask]=0
-        fake_scaled[mask_test] = 0
-        z_scaled[mask_test]  = 0
+        fake_scaled[mask] = 0
+        z_scaled[mask]  = 0
         # Reverse Standard Scaling (this has nothing to do with flows, it is a standard preprocessing step)
         m_t = mass(true_scaled)
         m_gen = mass(z_scaled)
@@ -408,6 +410,7 @@ class ProGamer(pl.LightningModule):
         self.log("cov_nf", cov_nf,  )
         self.log("fpnd", fpndv,  )
         self.log("mmd", mmd,  )
+        self.log("n_current",self.n_current)
         #print("end logging")
         self.plot = plotting_point_cloud(model=self,gen=fake_scaled.reshape(-1,self.n_current,self.n_dim),true=true_scaled.reshape(-1,self.n_current,self.n_dim),config=self.config,step=self.global_step,
         logger=self.logger, n=self.n_current,p=self.config["parton"])#,nf=z_scaled.reshape(-1,self.n_current,self.n_dim)
@@ -431,12 +434,13 @@ class ProGamer(pl.LightningModule):
         self.gen_net = self.gen_net.to("cuda")
         self.dis_net = self.dis_net.to("cuda")
         
-        if (cov>0.45 and w1m_<0.01 and self.n_current<30) or (fpndv<0.5) or (self.n_current>30 and cov>0.5 and w1m_<0.005):
+        if (cov>0.45 and w1m_<0.01 and self.n_current<30) or (fpndv<0.5 and self.n_current<self.n_part) or (self.n_current>30 and cov>0.5 and w1m_<0.002 and self.n_current<self.n_part):
             self.n_current+=1
             self.train_gen = False
             self.counter=0
             self.trainer.accelerator.setup(self)
-            print("number partiacles set to to ",self.n_current)
+            self.data_module.setup("train",self.n_current)
+            print("number particles set to to ",self.n_current)
         if self.current_epoch>50 and self.n_current==2:
             print("not converging, n:",self.n_current)
             raise

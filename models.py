@@ -1,6 +1,9 @@
 from torch import nn
 import torch
 from torch.nn.functional import leaky_relu, sigmoid
+
+def leaky(x):
+    return leaky_relu(x, 0.2)
 class Block(nn.Module):
     def __init__(self, embed_dim=60, num_heads=4,hidden=512,
                  dropout=0.1, activation='relu',):
@@ -111,7 +114,7 @@ class Gen(nn.Module):
                     dim_feedforward=hidden,
                     dropout=dropout,
                     batch_first=True,
-                    activation=lambda x: leaky_relu(x, 0.2),
+                    activation=leaky,
                     norm_first=norm_first
                 ),
                 num_layers=num_layers,
@@ -162,7 +165,7 @@ class Disc(nn.Module):
             self.pair_embed=PairEmbed(4, l_dim)
         self.encoder = nn.TransformerEncoder(
                 nn.TransformerEncoderLayer(d_model=l_dim,nhead=num_heads,dim_feedforward=hidden,dropout=dropout,batch_first=True,
-                activation=lambda x: leaky_relu(x, 0.2),norm_first=norm_first),
+                activation=leaky,norm_first=norm_first),
                 num_layers=num_layers,
             )
         if cls:

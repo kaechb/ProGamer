@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --partition=allgpu
+#SBATCH --partition=allgpu,maxgpu
 #SBATCH --constraint='P100'|'V100'|'A100'
-#SBATCH --time=48:00:00                           # Maximum time requested
+#SBATCH --time=72:00:00                           # Maximum time requested
 #SBATCH --nodes=1                          # Number of nodes
 #SBATCH --chdir=/home/kaechben/slurm        # directory must already exist!
 #SBATCH --job-name=hostname
@@ -10,6 +10,9 @@
 #SBATCH --mail-type=END                           # Type of email notification- BEGIN,END,FAIL,ALL
 #SBATCH --mail-user=max.muster@desy.de            # Email to which notifications will be sent. It defaults to <userid@mail.desy.de> if none is set.
 export WANDB_API_KEY=f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
+export WANDB_PROJECT="progamer"
+export WANDB_ENTITY="kaechben"
+
 unset LD_PRELOAD
 source /etc/profile.d/modules.sh
 module purge
@@ -17,8 +20,12 @@ module load maxwell gcc/9.3
 module load anaconda3/5.2
 . conda-init
 conda activate jetnet2
+path=ProGamer
+cd /home/$USER/$path/
 wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
-
+# wandb sweep sweep.yaml
+# wandb agent $SWEEP_ID
+wandb agent --count 1 dktpuumq  # big one for jetnet up to 150: 1no150ub
 # nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
 
 # nodes_array=($nodes)
@@ -67,9 +74,9 @@ wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
 #     sleep 5
 # done
 
-path=ProGamer
-POSTFIX=$(date -d "today" +"%d_%H_%M")
-echo $POSTFIX
-cp /home/$USER/$path/progamer.py /beegfs/desy/user/kaechben/code/progamer_${POSTFIX}.py
-cp /home/$USER/$path/main.py /beegfs/desy/user/kaechben/code/main_${POSTFIX}.py
-python -u /home/$USER/$path/main.py
+# path=ProGamer
+# POSTFIX=$(date -d "today" +"%d_%H_%M")
+# echo $POSTFIX
+# cp /home/$USER/$path/progamer.py /beegfs/desy/user/kaechben/code/progamer_${POSTFIX}.py
+# cp /home/$USER/$path/main.py /beegfs/desy/user/kaechben/code/main_${POSTFIX}.py
+# python -u /home/$USER/$path/main.py

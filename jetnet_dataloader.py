@@ -64,9 +64,12 @@ class JetNetDataloader(pl.LightningDataModule):
         self.n_part = config["n_part"]
         self.batch_size = config["batch_size"]
 
-    def setup(self, stage):
+    def setup(self, stage,n=2,):
         # This just sets up the dataloader, nothing particularly important. it reads in a csv, calculates mass and reads out the number particles per jet
         # And adds it to the dataset as variable. The only important thing is that we add noise to zero padded jets
+        if n:
+            self.n_current=n
+
         data,_=jetnet.datasets.JetNet.getData(jet_type=self.config["parton"],split="train",num_particles=self.n_part,data_dir="/beegfs/desy/user/kaechben/datasets")
         test_set,_=jetnet.datasets.JetNet.getData(jet_type=self.config["parton"],split="valid",num_particles=self.n_part,data_dir="/beegfs/desy/user/kaechben/datasets")
         data=torch.tensor(data)
@@ -76,6 +79,7 @@ class JetNetDataloader(pl.LightningDataModule):
         # masks=np.sum(data.values[:,np.arange(3,120,4)],axis=1)
         masks = self.data[:,:,-1].bool()
         self.data=self.data[:,:,:-1]
+
         self.n = masks.sum(axis=1)
         
         masks = ~masks
@@ -86,8 +90,10 @@ class JetNetDataloader(pl.LightningDataModule):
         
         self.scaler=StandardScaler()
         self.data=self.scaler.fit_transform(self.data)
-        self.data = self.data.reshape(len(self.data), self.n_part*self.n_dim)
-        self.data = torch.tensor(np.hstack((self.data.reshape(len(self.data),self.n_part*self.n_dim), masks)))
+        self.data=self.data[:,:self.n_current,:]
+        self.data = self.data.reshape(len(self.data), self.n_current*self.n_dim)
+        masks = masks[:,:self.n_current].bool()
+        self.data = torch.tensor(np.hstack((self.data.reshape(len(self.data),self.n_current*self.n_dim), masks)))
         # self.data, self.test_set = train_test_split(self.data.cpu().numpy(), test_size=0.3)
         self.test_set = self.data[-len(test_set):].float()
         self.data = self.data[:-len(test_set)].float()
@@ -97,7 +103,19 @@ class JetNetDataloader(pl.LightningDataModule):
         assert (torch.isnan(self.data)).sum() == 0
 
     def train_dataloader(self):
-        return DataLoader(self.data, batch_size=self.batch_size, drop_last=True,num_workers=8)
+        
+        batch_size={"0":[128],"1":[1024],"31":[512],"50":[128]}
+
+        if self.n_current<=30:
+            n="1"
+        elif self.n_current>=50:
+            n="50"
+        elif self.n_current>=31:
+            n="31"
+        
+        
+        
+        return DataLoader(self.data, batch_size=batch_size[n][0], drop_last=True,num_workers=8)
 
     def val_dataloader(self):
         return DataLoader(self.test_set, batch_size=len(self.test_set), drop_last=True,num_workers=8)
