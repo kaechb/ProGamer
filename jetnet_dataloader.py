@@ -64,7 +64,7 @@ class JetNetDataloader(pl.LightningDataModule):
         self.n_part = config["n_part"]
         self.batch_size = config["batch_size"]
 
-    def setup(self, stage,n=2,):
+    def setup(self, stage,n=80,):
         # This just sets up the dataloader, nothing particularly important. it reads in a csv, calculates mass and reads out the number particles per jet
         # And adds it to the dataset as variable. The only important thing is that we add noise to zero padded jets
         if n:
@@ -94,7 +94,7 @@ class JetNetDataloader(pl.LightningDataModule):
         self.data = self.data.reshape(len(self.data), self.n_current*self.n_dim)
         masks = masks[:,:self.n_current].bool()
         self.data = torch.tensor(np.hstack((self.data.reshape(len(self.data),self.n_current*self.n_dim), masks)))
-        # self.data, self.test_set = train_test_split(self.data.cpu().numpy(), test_size=0.3)
+        # # self.data, self.test_set = train_test_split(self.data.cpu().numpy(), test_size=0.3)
         self.test_set = self.data[-len(test_set):].float()
         self.data = self.data[:-len(test_set)].float()
         self.data = torch.tensor(self.data).float()

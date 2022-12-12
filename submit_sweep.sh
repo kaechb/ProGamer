@@ -25,7 +25,7 @@ cd /home/$USER/$path/
 wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
 # wandb sweep sweep.yaml
 # wandb agent $SWEEP_ID
-wandb agent --count 1 dktpuumq  # big one for jetnet up to 150: 1no150ub
+wandb agent --count 1 ngsi63v6  # big one for jetnet up to 150: 1no150ub
 # nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
 
 # nodes_array=($nodes)

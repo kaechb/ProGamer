@@ -3,23 +3,23 @@ import os
 import sys
 import time
 import traceback
+
 sys.path.insert(1, "/home/kaechben/ProGamer")
-from progamer import ProGamer
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-from pytorch_lightning.loggers import CometLogger, TensorBoardLogger,WandbLogger
-from pytorch_lightning.tuner.tuning import Tuner
-from scipy import stats
-from torch.nn import functional as FF
+import yaml
 # from pytorch_lightning.plugins.environments import SLURMEnvironment
 from helpers import *
 from jetnet_dataloader import JetNetDataloader
-
-
-import yaml
+from progamer import ProGamer
+from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from pytorch_lightning.loggers import (CometLogger, TensorBoardLogger,
+                                       WandbLogger)
+from pytorch_lightning.tuner.tuning import Tuner
+from scipy import stats
+from torch.nn import functional as FF
 
 # from plotting import plotting
 
@@ -33,12 +33,9 @@ def train(config,  load_ckpt=False, i=0, root=None):
     # hyperopt:whether to optimizer hyper parameters - load_ckpt: path to checkpoint if used
     data_module = JetNetDataloader(config)  # this loads the data
     data_module.setup("training")
-    model = ProGamer(
-        config,  data_module.num_batches
-    )  # the sets up the model,  config are hparams we want to optimize
-    model.data_module = data_module
+    
     # Callbacks to use during the training, we  checkpoint our models
-    print(config)
+
     callbacks = [
         ModelCheckpoint(
             monitor="n_current",
@@ -88,7 +85,7 @@ def train(config,  load_ckpt=False, i=0, root=None):
     # model.config["lr_g"]=0.00001
     # model.config["lr_d"]=0.00001
     # model.config = config #config are our hyperparams, we make this a class property now
-    print(root)
+    
     tags=[]
     if config["cls"]:
         tags=tags+["cls"]
@@ -105,19 +102,24 @@ def train(config,  load_ckpt=False, i=0, root=None):
     for key in logger.experiment.config.keys():
         config[key]=logger.experiment.config[key]
     config["lr_d"]=config["lr_g"]
-    print(config)
+    print("config:", logger.experiment.config)
+    model = ProGamer(
+        config,  data_module.num_batches
+    )
+    model.data_module = data_module
+      # the sets up the model,  config are hparams we want to optimize
     # log every n steps could be important as it decides how often it should log to tensorboard
     # Also check val every n epochs, as validation checking takes some time
     
     trainer = pl.Trainer(
-        gpus=-1,
+        gpus=1,
         logger=logger,
         log_every_n_steps=data_module.num_batches//2,  # auto_scale_batch_size="binsearch",
         max_epochs=config["max_epochs"]*10,
         callbacks=callbacks,
         progress_bar_refresh_rate=0,
         check_val_every_n_epoch=config["val_check"],
-        num_sanity_val_steps=1,  # gradient_clip_val=.02, 
+        num_sanity_val_steps=0,  # gradient_clip_val=.02, 
         fast_dev_run=False,
         default_root_dir=root,
         reload_dataloaders_every_n_epochs=config["val_check"],
@@ -139,11 +141,11 @@ if __name__ == "__main__":
 
     hyperopt=True
     config = { 
-        "val_check": 5,
+        "val_check": 25,
         "parton": parton,
         "warmup": 1200,
         "sched": "linear",
-        "freq": 3,
+        "freq": 5,
         "batch_size": 1024,
         "dropout": 0.1,
         "opt": "Adam",
@@ -154,7 +156,7 @@ if __name__ == "__main__":
         "hidden": 1024,
         "max_epochs": 1200,
         "name": "ProGamer",
-        "n_part": 30,
+        "n_part": 80,
         "n_dim": 3,
         "heads": 5,
         "flow_prior": True,
@@ -166,11 +168,11 @@ if __name__ == "__main__":
         "fc_disc":True,
         "cls":True,
         "num_layers":4,
-        "normfirst":False   }
+        "normfirst":False,
+        "pair": False   }
     config["parton"] =parton
 
     # start a run
-    print("maybe")
     # wandb.init(config=config,project="progamer_top")
     # update any values not set by sweep
 

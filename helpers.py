@@ -28,24 +28,22 @@ class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):
 
 
 
-def preprocess(data, rev=False):
+def to_canonical(data, rev=False):
     n_dim = data.shape[1]
-    data = data.reshape(-1, n_dim // 3, 3)
     p = torch.zeros_like(data)
     if rev:
-        p[:, :, 0] = torch.arctanh(
-            data[:, :, 2]
-            / torch.sqrt(data[:, :, 0] ** 2 + data[:, :, 1] ** 2 + data[:, :, 2] ** 2)
-        )
+        p[:, :, 0] = torch.arctanh(data[:, :, 2]/ torch.sqrt(data[:, :, 0] ** 2 + data[:, :, 1] ** 2 + data[:, :, 2] ** 2))
         p[:, :, 1] = torch.atan2(data[:, :, 1], data[:, :, 0])
         p[:, :, 2] = torch.sqrt(data[:, :, 0] ** 2 + data[:, :, 1] ** 2)
-
+        return p       
     else:
 
         p[:, :, 0] = data[:, :, 2] * torch.cos(data[:, :, 1])
         p[:, :, 1] = data[:, :, 2] * torch.sin(data[:, :, 1])
         p[:, :, 2] = data[:, :, 2] * torch.sinh(data[:, :, 0])
-    return p.reshape(-1, n_dim)
+        E=p[:,:,0]**2+p[:,:,1]**2+p[:,:,2]**2
+        return torch.cat((p,E.reshape(data.shape[0],data.shape[1],1)),dim=-1)
+
 
 
 
@@ -145,100 +143,3 @@ class Rational(torch.nn.Module):
         return output
 
 
-@torch.jit.script
-def delta_phi(a, b):
-    return (a - b + math.pi) % (2 * math.pi) - math.pi
-
-
-@torch.jit.script
-def delta_r2(eta1, phi1, eta2, phi2):
-    return (eta1 - eta2)**2 + delta_phi(phi1, phi2)**2
-
-
-def to_pt2(x, eps=1e-8):
-    pt2 = x[:, :2].square().sum(dim=1, keepdim=True)
-    if eps is not None:
-        pt2 = pt2.clamp(min=eps)
-    return pt2
-
-
-def to_m2(x, eps=1e-8):
-    m2 = x[:, 3:4].square() - x[:, :3].square().sum(dim=1, keepdim=True)
-    if eps is not None:
-        m2 = m2.clamp(min=eps)
-    return m2
-
-
-def atan2(y, x):
-    sx = torch.sign(x)
-    sy = torch.sign(y)
-    pi_part = (sy + sx * (sy ** 2 - 1)) * (sx - 1) * (-math.pi / 2)
-    atan_part = torch.arctan(y / (x + (1 - sx ** 2))) * sx ** 2
-    return atan_part + pi_part
-
-
-def to_ptrapphim(x, return_mass=True, eps=1e-8, for_onnx=False):
-    # x: (N, 4, ...), dim1 : (px, py, pz, E)
-    px, py, pz, energy = x.split((1, 1, 1, 1), dim=1)
-    pt = torch.sqrt(to_pt2(x, eps=eps))
-    # rapidity = 0.5 * torch.log((energy + pz) / (energy - pz))
-    rapidity = 0.5 * torch.log(1 + (2 * pz) / (energy - pz).clamp(min=1e-20))
-    phi = (atan2 if for_onnx else torch.atan2)(py, px)
-    if not return_mass:
-        return torch.cat((pt, rapidity, phi), dim=1)
-    else:
-        m = torch.sqrt(to_m2(x, eps=eps))
-        return torch.cat((pt, rapidity, phi, m), dim=1)
-
-
-def boost(x, boostp4, eps=1e-8):
-    # boost x to the rest frame of boostp4
-    # x: (N, 4, ...), dim1 : (px, py, pz, E)
-    p3 = -boostp4[:, :3] / boostp4[:, 3:].clamp(min=eps)
-    b2 = p3.square().sum(dim=1, keepdim=True)
-    gamma = (1 - b2).clamp(min=eps)**(-0.5)
-    gamma2 = (gamma - 1) / b2
-    gamma2.masked_fill_(b2 == 0, 0)
-    bp = (x[:, :3] * p3).sum(dim=1, keepdim=True)
-    v = x[:, :3] + gamma2 * bp * p3 + x[:, 3:] * gamma * p3
-    return v
-
-
-def p3_norm(p, eps=1e-8):
-    return p[:, :3] / p[:, :3].norm(dim=1, keepdim=True).clamp(min=eps)
-
-
-def pairwise_lv_fts(xi, xj, num_outputs=4, eps=1e-8, for_onnx=False):
-    pti, rapi, phii = to_ptrapphim(xi, False, eps=None, for_onnx=for_onnx).split((1, 1, 1), dim=1)
-    ptj, rapj, phij = to_ptrapphim(xj, False, eps=None, for_onnx=for_onnx).split((1, 1, 1), dim=1)
-
-    delta = delta_r2(rapi, phii, rapj, phij).sqrt()
-    lndelta = torch.log(delta.clamp(min=eps))
-    if num_outputs == 1:
-        return lndelta
-
-    if num_outputs > 1:
-        ptmin = ((pti <= ptj) * pti + (pti > ptj) * ptj) if for_onnx else torch.minimum(pti, ptj)
-        lnkt = torch.log((ptmin * delta).clamp(min=eps))
-        lnz = torch.log((ptmin / (pti + ptj).clamp(min=eps)).clamp(min=eps))
-        outputs = [lnkt, lnz, lndelta]
-
-    if num_outputs > 3:
-        xij = xi + xj
-        lnm2 = torch.log(to_m2(xij, eps=eps))
-        outputs.append(lnm2)
-
-    if num_outputs > 4:
-        ei, ej = xi[:, 3:4], xj[:, 3:4]
-        emin = ((ei <= ej) * ei + (ei > ej) * ej) if for_onnx else torch.minimum(ei, ej)
-        lnet = torch.log((emin * delta).clamp(min=eps))
-        lnze = torch.log((emin / (ei + ej).clamp(min=eps)).clamp(min=eps))
-        outputs += [lnet, lnze]
-
-    if num_outputs > 6:
-        costheta = (p3_norm(xi, eps=eps) * p3_norm(xj, eps=eps)).sum(dim=1, keepdim=True)
-        sintheta = (1 - costheta**2).clamp(min=0, max=1).sqrt()
-        outputs += [costheta, sintheta]
-
-    assert(len(outputs) == num_outputs)
-    return torch.cat(outputs, dim=1)
