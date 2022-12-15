@@ -186,8 +186,8 @@ class PF(pl.LightningModule):
         self.flow.eval()
         batch = batch.to("cpu")
         
-        mask = batch[:, 90:].cpu().bool()
-        batch = batch[:, :90].cpu()
+        mask = batch[:, self.n_part*self.n_dim:].cpu().bool()
+        batch = batch[:, : self.n_part*self.n_dim].cpu()
         empty = torch.zeros_like(batch)
     
         flat_batch=batch.reshape(len(batch)*self.n_part,self.n_dim)

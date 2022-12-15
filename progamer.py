@@ -43,7 +43,7 @@ class ProGamer(pl.LightningModule):
         self.hyperopt = True
         self.start = time.time()
         self.config = config
-        config["l_dim"]=int(config["l_dim"]*config["heads"])
+        config["l_dim"]=int(config["l_dim"])#*config["heads"]
         self.automatic_optimization = False
         self.freq_d = config["freq"]
         # Loss function of the Normalizing flows
@@ -51,18 +51,16 @@ class ProGamer(pl.LightningModule):
         self.save_hyperparameters()
         self.n_dim = self.config["n_dim"]
         self.n_part = config["n_part"]
-        self.n_current = 80
+        print(self.n_part)
+        self.n_current = config["n_start"]
         self.num_batches = int(num_batches)
         nf=PF.load_from_checkpoint(config["load_ckpt"])
         self.flow=nf.flow
         self.flow.eval()
-        
         self.start_gen=False
         self.d_losses=torch.ones(5)
-        
-        
-        self.gen_net = Gen(n_dim=self.n_dim,hidden=config["hidden"],num_layers=config["num_layers"],dropout=config["dropout"],no_hidden=config["no_hidden_gen"],l_dim=config["l_dim"],num_heads=config["heads"],  norm_first=config["normfirst"],pair=config["pair"]).cuda()
-        self.dis_net = Disc(n_dim=config["n_dim"],hidden=config["hidden"],l_dim=config["l_dim"],num_layers=config["num_layers"], norm_first=config["normfirst"],num_heads=config["heads"],dropout=config["dropout"]).cuda()#config["dropout"]
+        self.gen_net = Gen(n_dim=self.n_dim,hidden=config["hidden"],num_layers=config["num_layers"],dropout=config["dropout"],l_dim=config["l_dim"],num_heads=config["heads"],  norm_first=config["normfirst"],activation=config["activation"]).cuda()
+        self.dis_net = Disc(n_dim=config["n_dim"],hidden=config["hidden"],l_dim=config["l_dim"],num_layers=config["num_layers"], norm_first=config["normfirst"],num_heads=config["heads"],dropout=config["dropout"],activation=config["activation"]).cuda()#config
         self.sig = nn.Sigmoid()
         for p in self.dis_net.parameters():
             if p.dim() > 1:
@@ -76,6 +74,7 @@ class ProGamer(pl.LightningModule):
             self.dis_net= AveragedModel(self.dis_net)
         if self.config["swagen"]:
             self.gen_net= AveragedModel(self.gen_net)
+        
 
     def on_validation_epoch_start(self, *args, **kwargs):
         self.dis_net.train()
@@ -95,12 +94,16 @@ class ProGamer(pl.LightningModule):
         self.data_module = data_module
 
     def early_stopping(self,cov,fpndv,w1m_):
-        if (cov>0.45 and w1m_<0.01 and self.n_current<30) or (fpndv<0.5 and self.n_current<self.n_part) or (self.n_current>30 and cov>0.5 and w1m_<0.002 and self.n_current<self.n_part):
-            self.n_current+=1
+        if (cov>0.45 and w1m_<0.01 and self.n_current<30) or (cov<0.5 and self.n_current<self.n_part and w1m_<0.006) or (self.n_current>30 and cov>0.5 and w1m_<0.006 and self.n_current<self.n_part) :
+            self.n_current+=10
+            self.n_current=min(self.n_part,self.n_current)
+            self.data_module.n_current=self.n_current
+            
             self.start_gen = False
             self.counter=0
-            self.trainer.accelerator.setup(self)
-            self.data_module.setup("train",self.n_current)
+            # self.trainer.accelerator.setup(self)
+            # self.data_module.setup("train",self.n_current)
+            # self.data_module.setup("validation",self.n_current)
             print("number particles set to to ",self.n_current)
         # if self.current_epoch>300 and self.n_current==2:
         #     print("not converging, n:",self.n_current)
@@ -122,7 +125,7 @@ class ProGamer(pl.LightningModule):
             fpndv = fpnd(fake_scaled[:50000,:].numpy(), use_tqdm=False, jet_type=self.config["parton"])
         else:
             fpndv = 1000
-
+      
         w1m_ = w1m(fake_scaled, true_scaled)[0]
         w1p_ = w1p(fake_scaled, true_scaled)[0]
         w1efp_ = w1efp(fake_scaled, true_scaled)[0]
@@ -146,6 +149,7 @@ class ProGamer(pl.LightningModule):
         self.log("mmd", mmd,  )
         self.log("n_current",self.n_current)
         self.early_stopping(cov,fpndv,w1m_)
+        
 
     def sample_n(self, mask):
         #Samples a mask where the zero padded particles are True, rest False
@@ -198,11 +202,11 @@ class ProGamer(pl.LightningModule):
 
         elif self.config["sched"] == "cosine2":         
             max_iter = (self.config["max_epochs"] - self.train_nf) * self.num_batches//3-self.global_step
-            lr_scheduler_d = CosineWarmupScheduler(opt_d, warmup=self.config["warmup"] * self.num_batches, max_iters=max_iter )#15,150 // 3
+            lr_scheduler_d = CosineWarmupScheduler(opt_d, warmup=self.config["warmup"] * self.num_batches, max_iters=max_iter )#15 // 3
             lr_scheduler_g = CosineWarmupScheduler(opt_g, warmup=self.config["warmup"] * self.num_batches , max_iters=max_iter)#  // 3
         elif self.config["sched"] == "linear":
             max_iter = (self.config["max_epochs"] - self.train_nf // 2) * self.num_batches-self.global_step
-            lr_scheduler_d = Scheduler(opt_d,dim_embed=self.config["l_dim"], warmup_steps=self.config["warmup"] * self.num_batches )#15,150 // 3
+            lr_scheduler_d = Scheduler(opt_d,dim_embed=self.config["l_dim"], warmup_steps=self.config["warmup"] * self.num_batches )#15 // 3
             lr_scheduler_g = Scheduler(opt_g, dim_embed=self.config["l_dim"], warmup_steps=self.config["warmup"] * self.num_batches )#  // 3
         else:
             lr_scheduler_d = None
@@ -228,28 +232,37 @@ class ProGamer(pl.LightningModule):
     def train_disc(self,batch,mask,opt_d):
         with torch.no_grad():
             fake = self.sampleandscale(batch, mask, scale=False)
-        pred_real,m_t,p_t = self.dis_net(batch, mask=mask,m_flag=True,p_flag=True)
-        pred_fake,m_f,p_f = self.dis_net(fake.detach(), mask=mask,m_flag=True,p_flag=True)
-        m=torch.cat((mass(batch),mass(fake.detach())),dim=0)
-        p=torch.cat((batch[:,:,-1].sum(1),fake[:,:,-1].detach().sum(1)),dim=0)
-        m_loss = nn.MSELoss()(m.reshape(-1),torch.cat((m_t,m_f),dim=0).reshape(-1))
-        p_loss = nn.MSELoss()(p.reshape(-1),torch.cat((p_t,p_f),dim=0).reshape(-1))
+        
+        pred_real = self.dis_net(batch, mask=mask,aux=self.config["aux"])
+        pred_fake = self.dis_net(fake.detach(), mask=mask,aux=self.config["aux"])
+        if self.config["aux"]:
+            m=torch.cat((mass(batch),mass(fake.detach())),dim=0)
+            p=torch.cat((batch[:,:,-1].sum(1),fake[:,:,-1].detach().sum(1)),dim=0)
+            m_loss = nn.MSELoss()(m.reshape(-1),torch.cat((pred_real[1],pred_fake[1]),dim=0).reshape(-1))
+            self.log("Training/m_loss",m_loss,logger=True,prog_bar=False,on_step=True)
+            pred_real,pred_fake=pred_real[0],pred_fake[0]
+        #p_loss = nn.MSELoss()(p.reshape(-1),torch.cat((p_t,p_f),dim=0).reshape(-1))
         target_real = torch.ones_like(pred_real)
         target_fake = torch.zeros_like(pred_fake)
         pred = torch.vstack((pred_real, pred_fake))
         target = torch.vstack((target_real, target_fake))
-        d_loss = nn.MSELoss()(pred, target).mean()+0.01*m_loss+0.01*p_loss
+        d_loss = nn.MSELoss()(pred, target).mean()
+        if self.config["aux"]:#+0.01*p_loss
+            if m_loss==m_loss:
+                d_loss+=0.01*m_loss 
         opt_d.zero_grad()
         self.manual_backward(d_loss)
         opt_d.step()
-        d_loss-=0.01*m_loss+0.01*p_loss
+        if self.config["aux"]:
+            d_loss-=0.01*m_loss#+0.01*p_loss
         self.d_losses[self.global_step%5]=d_loss.detach()
         self.log("Training/d_loss", d_loss, logger=True, prog_bar=False,on_step=True)
-
-        self.log("Training/m_loss",m_loss,logger=True,prog_bar=False,on_step=True)
-        self.log("Training/p_loss",p_loss,logger=True,prog_bar=False,on_step=True)
-        if self.current_epoch % 5 == 0 and self.global_step%self.num_batches<3 and self.current_epoch > self.train_nf / 2:
-                self.plot.plot_scores(pred_real.detach().cpu().numpy(),pred_fake.detach().cpu().numpy(),train=True,step=self.current_epoch)
+        #self.log("Training/p_loss",p_loss,logger=True,prog_bar=False,on_step=True)
+        try:
+            if self.current_epoch % 25 == 0 and self.global_step%self.num_batches<3:
+                    self.plot.plot_scores(pred_real.detach().cpu().numpy(),pred_fake.detach().cpu().numpy(),train=True,step=self.current_epoch)
+        except:
+            pass
         if self.global_step < 2:
             print("passed test disc")
 
@@ -274,8 +287,9 @@ class ProGamer(pl.LightningModule):
         
         """training loop of the model, here all the data is passed forward to a gaussian
         This is the important part what is happening here. This is all the training we do"""
-        mask = batch[:, self.n_current*self.n_dim:].bool()
-        batch = batch[:, :self.n_current*self.n_dim].reshape(len(batch), self.n_current, self.n_dim)
+        assert batch.shape[1]==self.n_current
+        mask = batch[:, :self.n_current,self.n_dim].bool()
+        batch = batch[:, :self.n_current,:self.n_dim]
         batch[mask]=0
         opt_d, opt_g = self.optimizers()
         if self.config["sched"]:
@@ -297,14 +311,13 @@ class ProGamer(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         """This calculates some important metrics on the hold out set (checking for overtraining)"""
         #print("start val")
-        mask = batch[:, self.n_current*self.n_dim:].bool().cpu()
-        batch = batch[:, :self.n_current*self.n_dim].cpu()
+        # assert batch.shape[1]==self.n_current
+        mask = batch[:, :self.n_current,self.n_dim].bool().cpu()
+        batch = batch[:, :self.n_current,:self.n_dim].cpu()
         mask_test=self.sample_n(mask).bool()
         batch = batch.to("cpu") 
         with torch.no_grad():
-            batch = batch.reshape(len(batch),self.n_current,self.n_dim)
-            gen, fake_scaled, true_scaled, z_scaled = self.sampleandscale(batch,mask, 
-            scale=True)
+            gen, fake_scaled, true_scaled, z_scaled = self.sampleandscale(batch,mask, scale=True)
             batch[mask]=0
             scores_real = self.dis_net(batch, mask=mask)
             scores_fake = self.dis_net(gen, mask=mask)            
@@ -322,5 +335,8 @@ class ProGamer(pl.LightningModule):
             traceback.print_exc()
         
         self.calc_log_metrics(fake_scaled,z_scaled,true_scaled)
+        # if self.global_step==0:
+        #     self.data_module.setup("train",self.n_current)
+
         
        
