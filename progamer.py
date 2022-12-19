@@ -43,6 +43,8 @@ class ProGamer(pl.LightningModule):
         self.hyperopt = True
         self.start = time.time()
         self.config = config
+        if self.config["flow_prior"]:
+            self.config["latent"]=False
         config["l_dim"]=int(config["l_dim"])#*config["heads"]
         self.automatic_optimization = False
         self.freq_d = config["freq"]
@@ -59,8 +61,8 @@ class ProGamer(pl.LightningModule):
         self.flow.eval()
         self.start_gen=False
         self.d_losses=torch.ones(5)
-        self.gen_net = Gen(n_dim=self.n_dim,hidden=config["hidden"],num_layers=config["num_layers"],dropout=config["dropout"],l_dim=config["l_dim"],num_heads=config["heads"],  norm_first=config["normfirst"],activation=config["activation"]).cuda()
-        self.dis_net = Disc(n_dim=config["n_dim"],hidden=config["hidden"],l_dim=config["l_dim"],num_layers=config["num_layers"], norm_first=config["normfirst"],num_heads=config["heads"],dropout=config["dropout"],activation=config["activation"]).cuda()#config
+        self.gen_net = Gen(n_dim=self.n_dim,hidden=config["hidden_gen"],num_layers=config["num_layers_gen"],dropout=config["dropout_gen"],l_dim=config["l_dim_gen"],num_heads=config["heads_gen"],activation=config["activation_gen"],proj=config["proj_gen"],latent=self.config["latent"],part=self.config["n_part"]).cuda()
+        self.dis_net = Disc(n_dim=config["n_dim"],hidden=config["hidden"],l_dim=config["l_dim"],num_layers=config["num_layers"], num_heads=config["heads"],dropout=config["dropout"],activation=config["activation"],proj=config["proj"]).cuda()#config
         self.sig = nn.Sigmoid()
         for p in self.dis_net.parameters():
             if p.dim() > 1:
@@ -70,6 +72,7 @@ class ProGamer(pl.LightningModule):
                 nn.init.xavier_normal(p)
         self.train_nf = int(config["max_epochs"] * config["frac_pretrain"])
         self.counter=0
+
         if self.config["swa"]:
             self.dis_net= AveragedModel(self.dis_net)
         if self.config["swagen"]:
@@ -94,7 +97,7 @@ class ProGamer(pl.LightningModule):
         self.data_module = data_module
 
     def early_stopping(self,cov,fpndv,w1m_):
-        if (cov>0.45 and w1m_<0.01 and self.n_current<30) or (cov<0.5 and self.n_current<self.n_part and w1m_<0.006) or (self.n_current>30 and cov>0.5 and w1m_<0.006 and self.n_current<self.n_part) :
+        if (cov>0.45 and w1m_<0.01 and self.n_current<30) or (self.n_current>30 and cov>0.4 and w1m_<0.006 and self.n_current<self.n_part) :
             self.n_current+=10
             self.n_current=min(self.n_part,self.n_current)
             self.data_module.n_current=self.n_current
@@ -118,9 +121,9 @@ class ProGamer(pl.LightningModule):
         #     print("not converging, n:",self.n_current)
         #     self.trainer.should_stop=1
 
-    def calc_log_metrics(self, fake_scaled,z_scaled,true_scaled):
+    def calc_log_metrics(self, fake_scaled,true_scaled):
         cov, mmd = cov_mmd( true_scaled,fake_scaled, use_tqdm=False)
-        cov_nf, mmd_nf = cov_mmd(true_scaled,z_scaled,  use_tqdm=False)
+        #cov_nf, mmd_nf = cov_mmd(true_scaled,  use_tqdm=False)
         if self.n_current==30:
             fpndv = fpnd(fake_scaled[:50000,:].numpy(), use_tqdm=False, jet_type=self.config["parton"])
         else:
@@ -129,26 +132,27 @@ class ProGamer(pl.LightningModule):
         w1m_ = w1m(fake_scaled, true_scaled)[0]
         w1p_ = w1p(fake_scaled, true_scaled)[0]
         w1efp_ = w1efp(fake_scaled, true_scaled)[0]
-        try:
-            fgd_=fgd(true_scaled,fake_scaled,p=self.config["parton"],n=self.n_current)[0]
-        except:
-            fgd_=1000
+        # try:
+        #     fgd_=fgd(true_scaled,fake_scaled,p=self.config["parton"],n=self.n_current)[0]
+        # except:
+        #     fgd_=1000
 
-        temp = {"val_fpnd": fpndv,"val_fgd":fgd_,"val_mmd": mmd,"val_cov": cov,"val_w1m": w1m_,
+        temp = {"val_fpnd": fpndv,"val_mmd": mmd,"val_cov": cov,"val_w1m": w1m_,
                 "val_w1efp": w1efp_,"val_w1p": w1p_,"step": self.global_step,}
         print("epoch {}: ".format(self.current_epoch), temp)
         #print("start logging")
         self.log("hp_metric", w1m_,)
-        self.log("fgd",fgd_)
+        #self.log("fgd",fgd_)
         self.log("w1m", w1m_,)
         self.log("w1p", w1p_,)
         self.log("w1efp", w1efp_,)
         self.log("cov", cov,  )
-        self.log("cov_nf", cov_nf,  )
+        #self.log("cov_nf", cov_nf,  )
         self.log("fpnd", fpndv,  )
         self.log("mmd", mmd,  )
         self.log("n_current",self.n_current)
-        self.early_stopping(cov,fpndv,w1m_)
+        if not self.config["smart_batching"]:
+            self.early_stopping(cov,fpndv,w1m_)
         
 
     def sample_n(self, mask):
@@ -173,24 +177,30 @@ class ProGamer(pl.LightningModule):
             if self.config["flow_prior"]:
                 z = self.flow.sample(len(batch)*self.n_current).reshape(len(batch), 
                 self.n_current, self.n_dim)
-
-
+                
+            else:
+                with torch.no_grad():
+                    if self.config["latent"]:
+                        z=torch.normal(torch.zeros(len(batch),self.config["latent"],device=batch.device),torch.ones(len(batch),self.config["latent"],device=batch.device)).reshape(len(batch),self.config["latent"])
+                    else:
+                        z=torch.normal(torch.zeros(len(batch)*self.n_part,self.n_dim,device=batch.device),torch.ones(len(batch)*self.n_part,self.n_dim,device=batch.device)).reshape(len(batch),self.n_part,self.n_dim)
         fake=self.gen_net(z,mask=mask)
-        fake=z+fake
+        if self.config["add_corr"] and not self.config["latent"]:
+            fake=z+fake
         # else:
         #     fake=self.gen_net(z,mask)
         
         if scale:
             fake_scaled = fake.clone()
             true = batch.clone()
-            z_scaled = z.clone()
+            #z_scaled = z.clone()
             self.data_module.scaler = self.data_module.scaler.to(batch.device)
             fake_scaled=self.data_module.scaler.inverse_transform(fake_scaled)
-            z_scaled=self.data_module.scaler.inverse_transform(z_scaled)
+            #z_scaled=self.data_module.scaler.inverse_transform(z_scaled)
             true=self.data_module.scaler.inverse_transform(true)
             fake_scaled[mask]=0
-            z_scaled[mask]=0
-            return fake, fake_scaled, true, z_scaled
+            #z_scaled[mask]=0
+            return fake, fake_scaled, true# z_scaled
         else:
             return fake
 
@@ -256,6 +266,10 @@ class ProGamer(pl.LightningModule):
         if self.config["aux"]:
             d_loss-=0.01*m_loss#+0.01*p_loss
         self.d_losses[self.global_step%5]=d_loss.detach()
+        if self.d_losses.mean()<0.1:
+            self.freq_d=1
+        else:
+            self.freq_d=5
         self.log("Training/d_loss", d_loss, logger=True, prog_bar=False,on_step=True)
         #self.log("Training/p_loss",p_loss,logger=True,prog_bar=False,on_step=True)
         try:
@@ -287,7 +301,9 @@ class ProGamer(pl.LightningModule):
         
         """training loop of the model, here all the data is passed forward to a gaussian
         This is the important part what is happening here. This is all the training we do"""
-        assert batch.shape[1]==self.n_current
+        # assert batch.shape[1]==self.n_current
+        if self.config["smart_batching"]:
+            self.n_current=batch.shape[1]
         mask = batch[:, :self.n_current,self.n_dim].bool()
         batch = batch[:, :self.n_current,:self.n_dim]
         batch[mask]=0
@@ -311,22 +327,23 @@ class ProGamer(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         """This calculates some important metrics on the hold out set (checking for overtraining)"""
         #print("start val")
-        # assert batch.shape[1]==self.n_current
+        if self.config["smart_batching"]:
+            self.n_current=batch.shape[1]
         mask = batch[:, :self.n_current,self.n_dim].bool().cpu()
         batch = batch[:, :self.n_current,:self.n_dim].cpu()
         mask_test=self.sample_n(mask).bool()
         batch = batch.to("cpu") 
         with torch.no_grad():
-            gen, fake_scaled, true_scaled, z_scaled = self.sampleandscale(batch,mask, scale=True)
-            batch[mask]=0
+            gen, fake_scaled, true_scaled = self.sampleandscale(batch,mask, scale=True)
+
             scores_real = self.dis_net(batch, mask=mask)
             scores_fake = self.dis_net(gen, mask=mask)            
         true_scaled[mask]=0
         # Reverse Standard Scaling (this has nothing to do with flows, it is a standard preprocessing step)
         for i in range(self.n_current):
             fake_scaled[fake_scaled[:, i,2] < 0, i,2] = 0
-            z_scaled[z_scaled[:, i,2] < 0, i,2] = 0
-        self.plot = plotting_point_cloud(model=self,gen=fake_scaled.reshape(-1,self.n_current,self.n_dim),true=true_scaled.reshape(-1,self.     n_current,self.n_dim),config=self.config,step=self.global_step,logger=self.logger, n=self.n_current,p=self.config["parton"])#,nf=z_scaled.reshape(-1,self.n_current,self.n_dim)
+            #z_scaled[z_scaled[:, i,2] < 0, i,2] = 0
+        self.plot = plotting_point_cloud(model=self,gen=fake_scaled,true=true_scaled,config=self.config,step=self.global_step,logger=self.logger, n=self.n_current,p=self.config["parton"])#,nf=z_scaled.reshape(-1,self.n_current,self.n_dim)
     #self.plot.plot_mom(self.global_step)
         try:
             self.plot.plot_mass(save=None, bins=50)
@@ -334,7 +351,7 @@ class ProGamer(pl.LightningModule):
         except Exception as e:
             traceback.print_exc()
         
-        self.calc_log_metrics(fake_scaled,z_scaled,true_scaled)
+        self.calc_log_metrics(fake_scaled,true_scaled)
         # if self.global_step==0:
         #     self.data_module.setup("train",self.n_current)
 
