@@ -26,13 +26,15 @@ wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
 # wandb sweep sweep.yaml
 # wandb agent $SWEEP_ID
 
-wandb agent --count 1 5e8lbima  # big one for jetnet up to 150: 1no150ub
+wandb agent --count 1 xcfyg57v  # big one for jetnet up to 150: 1no150ub
 # nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
 path=ProGamer
 POSTFIX=$(date -d "today" +"%d_%H_%M")
 echo $POSTFIX
 cp /home/$USER/$path/progamer.py /beegfs/desy/user/kaechben/code/progamer_${POSTFIX}.py
 cp /home/$USER/$path/main.py /beegfs/desy/user/kaechben/code/main_${POSTFIX}.py
+cp /home/$USER/$path/models.py /beegfs/desy/user/kaechben/code/models_${POSTFIX}.py
+
 # nodes_array=($nodes)
 # head_node=${nodes_array[0]}
 # head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)

@@ -177,7 +177,7 @@ class Gen(nn.Module):
 
 
 class Disc(nn.Module):
-    def __init__(self,n_dim=3,l_dim=10,hidden=300,num_layers=3,num_heads=1,dropout=0.5,proj=True,activation="leakyrelu"):
+    def __init__(self,n_dim=3,l_dim=10,hidden=300,num_layers=3,num_heads=1,dropout=0.5,proj=True,activation="leakyrelu",out_dim=1):
         super().__init__()
 
         self.embbed = nn.Linear(n_dim, l_dim)
@@ -187,7 +187,7 @@ class Disc(nn.Module):
             for i in range(num_layers)])
         self.hidden = nn.Linear(l_dim , 2 * hidden )
         self.hidden2 = nn.Linear(2 * hidden , l_dim )
-        self.out = nn.Linear(l_dim , 1)
+        self.out = nn.Linear(l_dim , out_dim)
         self.out_aux = nn.Linear(l_dim , 2)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, l_dim), requires_grad=True)
       
@@ -215,6 +215,5 @@ class Disc(nn.Module):
         # mask: (N, 1, P) -- real particle = 1, padded = 0
 
         
-
 
 

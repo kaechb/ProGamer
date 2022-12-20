@@ -55,23 +55,21 @@ class JetFlow(pl.LightningModule):
     def __init__(self, config, num_batches,path="/"):
         """This initializes the model and its hyperparameters"""
         super().__init__()
-    
-        
         self.config = config
-        
         self.automatic_optimization = False
         self.train_gan=config["train_gan"]
         # Loss function of the Normalizing flows
-        self.logprobs = []
+        self.flows = []
         self.save_hyperparameters()
         self.n_dim = self.config["n_dim"]
         self.n_part = config["n_part"]
         self.num_batches = int(num_batches)
+        self.n_current=config["n_start"]
         K=self.config["coupling_layers"]
         for i in range(K):
             '''This creates the masks for the coupling layers, particle masks are masks
             created such that each feature particle (eta,phi,pt) is masked together or not'''
-            mask=create_random_binary_mask(self.n_dim)  
+            mask=create_random_binary_mask(self.n_dim*self.n_part)  
             #Here are the coupling layers of the flow. There seem to be 3 choices but actually its more or less only 2
             #The autoregressive one is incredibly slow while sampling which does not work together with the constraint
             self.flows += [PiecewiseRationalQuadraticCouplingTransform(
@@ -87,8 +85,8 @@ class JetFlow(pl.LightningModule):
         self.flows=CompositeTransform(self.flows)
         # Construct flow model
         self.flow = base.Flow(distribution=self.q0, transform=self.flows)
-        if self.config["swa"]:
-            self.flow= AveragedModel(self.flow)
+        # if self.config["swa"]:
+        #     self.flow= AveragedModel(self.flow)
         if self.train_gan=="dis":
             self.dis_net=Disc()
         elif self.train_gan=="ref":
@@ -118,20 +116,12 @@ class JetFlow(pl.LightningModule):
             fpndv = fpnd(fake_scaled[:50000,:].numpy(), use_tqdm=False, jet_type=self.config["parton"])
         else:
             fpndv = 1000
-      
         w1m_ = w1m(fake_scaled, true_scaled)[0]
         w1p_ = w1p(fake_scaled, true_scaled)[0]
         w1efp_ = w1efp(fake_scaled, true_scaled)[0]
-        try:
-            fgd_=fgd(true_scaled,fake_scaled,p=self.config["parton"],n=self.n_current)[0]
-        except:
-            fgd_=1000
-
-        temp = {"val_fpnd": fpndv,"val_fgd":fgd_,"val_mmd": mmd,"val_cov": cov,"val_w1m": w1m_,
-                "val_w1efp": w1efp_,"val_w1p": w1p_,"step": self.global_step,}
+        temp = {"fpnd": fpndv,"mmd": mmd,"cov": cov,"w1m": w1m_, "w1efp": w1efp_,"w1p": w1p_,"step": self.global_step,}
         print("epoch {}: ".format(self.current_epoch), temp)
         self.log("hp_metric", w1m_,)
-        self.log("fgd",fgd_)
         self.log("w1m", w1m_,)
         self.log("w1p", w1p_,)
         self.log("w1efp", w1efp_,)
@@ -153,26 +143,23 @@ class JetFlow(pl.LightningModule):
         mask_test = (indices.view(1, -1) < torch.tensor(n_test).view(-1, 1))      
         mask_test=~mask_test.bool()
         return (mask_test)
-    
+
+    def sample(self):
+        if self.config["context_features"]>0:            
+            fake=self.flow.sample(1,c).reshape(len(batch),self.n_part,self.n_dim)
+        else:
+            fake=self.flow.sample(len(batch)).reshape(len(batch),self.n_part,self.n_dim)
+        return fake
     def sampleandscale(self, batch,c=None,  scale=False):
         """This is a helper function that samples from the flow (i.e. generates a new sample)
         and reverses the standard scaling that is done in the preprocessing. This allows to calculate the mass
         on the generative sample and to compare to the simulated one, we need to inverse the scaling before calculating the mass
         because calculating the mass is a non linear transformation and does not commute with the mass calculation"""
         self.flow.eval()
-        if not self.train_gan:
-            with torch.no_grad():
-                if self.config["context_features"]>0:            
-                    fake=self.flow.sample(1,c).reshape(len(batch),self.n_part,self.n_dim)
-                else:
-                    fake=self.flow.sample(len(batch)).reshape(len(batch),self.n_part,self.n_dim)
-        elif self.train_gan=="dis":
+
+        with torch.no_grad():
+            fake=self.sample()
             
-            fake=self.flow.sample(len(batch)).reshape(len(batch),self.n_part,self.n_dim)        
-        else:  
-            with torch.no_grad():
-                z=self.flow.sample(len(batch)).reshape(len(batch),self.n_part,self.n_dim)
-            fake=z+self.gen_net(z,mask)
             
         if scale:
             fake_scaled = fake.clone()
@@ -188,7 +175,7 @@ class JetFlow(pl.LightningModule):
         max_iter = (self.config["max_epochs"]) * self.num_batches-self.global_step
         lr_scheduler = CosineWarmupScheduler(opt, warmup=self.config["warmup"] * self.num_batches, max_iters=max_iter)
         
-        elif self.config["sched"] == "linear":
+        if self.config["sched"] == "linear":
             lr_scheduler = Scheduler(opt,dim_embed=self.config["l_dim"], warmup_steps=self.config["warmup"] * self.num_batches )#15 // 3
         else:
             lr_scheduler = None
@@ -287,13 +274,14 @@ class JetFlow(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         opt=self.optimizers()[0]
         mask=batch[:,:,-1]
-        x,c= batch[:,:,:-1],batch[1]
-        if self.config["context_features"]==1:
-            c=c[:,0].reshape(-1,1)
+        x= batch[:,:,:-1]
+        if self.config["context_features"]>0:
+            c=c[:,0].reshape(-1,self.config["context_features"])
         elif self.config["context_features"]==0:
             c=None
         self.opt_g.zero_grad()
-        g_loss = -self.flow.to(self.device).log_prob(x,c if self.config["context_features"] else None).mean()/self.n_dim
+
+        g_loss = -self.flow.to(self.device).log_prob(x.reshape(-1,(self.n_dim*self.n_part)),c if self.config["context_features"] else None).mean()/(self.n_dim*self.n_part)
         self.log("logprob", g_loss, on_step=True, on_epoch=False, logger=True) 
         self.losses.append(g_loss.detach().cpu().numpy())
         if self.gan_corr:
@@ -327,6 +315,6 @@ class JetFlow(pl.LightningModule):
             traceback.print_exc()
         
         self.calc_log_metrics(fake_scaled,z_scaled,true_scaled)
-$
+
         
        

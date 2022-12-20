@@ -22,6 +22,6 @@ wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
 path=ProGamer
 POSTFIX=$(date -d "today" +"%d_%H_%M")
 echo $POSTFIX
-cp /home/$USER/$path/pointflow.py /beegfs/desy/user/kaechben/code/pointflow_${POSTFIX}.py
-cp /home/$USER/$path/main_pointflow.py /beegfs/desy/user/kaechben/code/main_pointflow_${POSTFIX}.py
-python -u /home/$USER/ProGamer/main_flow.py
+cp /home/$USER/$path/pointflow.py /beegfs/desy/user/kaechben/code/progamer_${POSTFIX}.py
+cp /home/$USER/$path/main_pointflow.py /beegfs/desy/user/kaechben/code/main_progamer_${POSTFIX}.py
+python -u /home/$USER/ProGamer/main.py

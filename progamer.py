@@ -43,22 +43,23 @@ class ProGamer(pl.LightningModule):
         self.hyperopt = True
         self.start = time.time()
         self.config = config
-        if self.config["flow_prior"]:
-            self.config["latent"]=False
+        # if self.config["flow_prior"]:
+        self.config["latent"]=False
         config["l_dim"]=int(config["l_dim"])#*config["heads"]
         self.automatic_optimization = False
         self.freq_d = config["freq"]
         # Loss function of the Normalizing flows
         self.logprobs = []
-        self.save_hyperparameters()
+        
         self.n_dim = self.config["n_dim"]
         self.n_part = config["n_part"]
         print(self.n_part)
         self.n_current = config["n_start"]
         self.num_batches = int(num_batches)
-        nf=PF.load_from_checkpoint(config["load_ckpt"])
-        self.flow=nf.flow
-        self.flow.eval()
+        self.save_hyperparameters()
+        # nf=PF.load_from_checkpoint(config["load_ckpt"],strict=False)
+        # self.flow=nf.flow
+        # self.flow.eval()
         self.start_gen=False
         self.d_losses=torch.ones(5)
         self.gen_net = Gen(n_dim=self.n_dim,hidden=config["hidden_gen"],num_layers=config["num_layers_gen"],dropout=config["dropout_gen"],l_dim=config["l_dim_gen"],num_heads=config["heads_gen"],activation=config["activation_gen"],proj=config["proj_gen"],latent=self.config["latent"],part=self.config["n_part"]).cuda()
@@ -72,7 +73,6 @@ class ProGamer(pl.LightningModule):
                 nn.init.xavier_normal(p)
         self.train_nf = int(config["max_epochs"] * config["frac_pretrain"])
         self.counter=0
-
         if self.config["swa"]:
             self.dis_net= AveragedModel(self.dis_net)
         if self.config["swagen"]:
@@ -82,13 +82,13 @@ class ProGamer(pl.LightningModule):
     def on_validation_epoch_start(self, *args, **kwargs):
         self.dis_net.train()
         self.gen_net.train()
-        self.flow.eval()
-        self.flow = self.flow.to("cpu")
+        # self.flow.eval()
+        # self.flow = self.flow.to("cpu")
         self.dis_net = self.dis_net.cpu()
         self.gen_net = self.gen_net.cpu()
 
     def on_validation_epoch_end(self, *args, **kwargs):
-        self.flow = self.flow.to("cuda")
+        # self.flow = self.flow.to("cuda")
         self.gen_net = self.gen_net.to("cuda")
         self.dis_net = self.dis_net.to("cuda")
 
@@ -172,18 +172,18 @@ class ProGamer(pl.LightningModule):
         on the generative sample and to compare to the simulated one, we need to inverse the scaling before calculating the mass
         because calculating the mass is a non linear transformation and does not commute with the mass calculation"""
         assert mask.dtype==torch.bool
-        self.flow.eval()
+        # self.flow.eval()
         with torch.no_grad():
-            if self.config["flow_prior"]:
-                z = self.flow.sample(len(batch)*self.n_current).reshape(len(batch), 
-                self.n_current, self.n_dim)
+            # if self.config["flow_prior"]:
+            #     z = self.flow.sample(len(batch)*self.n_current).reshape(len(batch), 
+            #     self.n_current, self.n_dim)
                 
+            # else:
+                
+            if self.config["latent"]:
+                z=torch.normal(torch.zeros(len(batch),self.config["latent"],device=batch.device),torch.ones(len(batch),self.config["latent"],device=batch.device)).reshape(len(batch),self.config["latent"])
             else:
-                with torch.no_grad():
-                    if self.config["latent"]:
-                        z=torch.normal(torch.zeros(len(batch),self.config["latent"],device=batch.device),torch.ones(len(batch),self.config["latent"],device=batch.device)).reshape(len(batch),self.config["latent"])
-                    else:
-                        z=torch.normal(torch.zeros(len(batch)*self.n_part,self.n_dim,device=batch.device),torch.ones(len(batch)*self.n_part,self.n_dim,device=batch.device)).reshape(len(batch),self.n_part,self.n_dim)
+                z=torch.normal(torch.zeros(len(batch)*self.n_current,self.n_dim,device=batch.device),torch.ones(len(batch)*self.n_current,self.n_dim,device=batch.device)).reshape(len(batch),self.n_current,self.n_dim)
         fake=self.gen_net(z,mask=mask)
         if self.config["add_corr"] and not self.config["latent"]:
             fake=z+fake

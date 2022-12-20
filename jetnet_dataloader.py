@@ -109,7 +109,7 @@ class JetNetDataloader(pl.LightningDataModule):
         
         # smart_batching(self.data)
        
-        return DataLoader(self.data, collate_fn=custom_collate,batch_size=self.config["batch_size"])
+        return DataLoader(self.data, collate_fn=custom_collate,batch_size=self.config["batch_size"],num_workers=40)
 
     def val_dataloader(self):
         return DataLoader(self.test_set[:,:self.n_part], batch_size=len(self.test_set), drop_last=True,num_workers=40)
