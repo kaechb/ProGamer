@@ -68,7 +68,6 @@ class JetNetDataloader(pl.LightningDataModule):
         self.n_dim = config["n_dim"]
 
         self.n_part = config["n_part"]
-        self.n_current = 150
         self.batch_size = config["batch_size"]
         
         
