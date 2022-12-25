@@ -1,5 +1,6 @@
 import datetime
 import os
+print(os.system('hostname'))
 import sys
 import time
 import traceback
@@ -26,7 +27,7 @@ from torch.nn import functional as FF
 # from comet_ml import Experiment
 
 
-def train(config,  load_ckpt=False, i=0, root=None):
+def train(config,  load_ckpt=False):
     # This function is a wrapper for the hyperparameter optimization module called ray
     # Its parameters hyperopt and load_ckpt are there for convenience
     # Config is the only relevant parameter as it sets the trainings hyperparameters
@@ -38,70 +39,37 @@ def train(config,  load_ckpt=False, i=0, root=None):
     
     
     # Callbacks to use during the training, we  checkpoint our models
-    callbacks = [
-        EarlyStopping(monitor="w1m", min_delta=0.00, patience=60,  mode="min",divergence_threshold=10,verbose=True),
-        
-        ModelCheckpoint(
-            monitor="w1m",
-            save_top_k=3,
-            mode="min",
-            filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",
-            #dirpath=root,
-            every_n_epochs=10,
-        ),
-        ModelCheckpoint(
-            monitor="fpnd",
-            save_top_k=3,
-            mode="min",
-            filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",
-            #dirpath=root,
-            every_n_epochs=10,
-        )
-    ]
+
     logger = WandbLogger(save_dir="/beegfs/desy/user/kaechben/pf_"+config["parton"],sync_tensorboard=True,
-                project="progamer_top")# TensorBoardLogger(root)#,version=version_name
-    for key in logger.experiment.config.keys():
-        config[key]=logger.experiment.config[key]
-    # tags=[]
-    # if config["cls"]:
-    #     tags=tags+["cls"]
-
-    # if config["swa"]:
-    #     tags=tags+["swa"]
-    
-    # tags=tags+[str(config["opt"])]+[str(config["sched"])]+[str(config["n_part"])]
-
-   
-    
-    print(logger.experiment.dir)
-    # if not config["load_ckpt_trafo"]:
-    
-    data_module = JetNetDataloader(config)
-    data_module.setup("training")
-    config["l_dim"]=config["l_dim"]*config["heads"]
-    config["l_dim_gen"]=config["l_dim_gen"]*config["heads_gen"]
-    config["lr_d"]=config["lr_g"]
+                project="progamer_top",)# TensorBoardLogger(root)#,version=version_name
+    callbacks = [
+    EarlyStopping(monitor="w1m", min_delta=0.00, patience=20,  mode="min",divergence_threshold=10,verbose=True),
+    ModelCheckpoint(monitor="w1m",save_top_k=3,mode="min",filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",every_n_epochs=10),
+    ModelCheckpoint(monitor="fpnd",save_top_k=3,mode="min",filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",every_n_epochs=10)]
     if config["n_part"]<30:
         config["load_ckpt"]="/beegfs/desy/user/kaechben/pf_t/pointflow/1pn8k3fp/checkpoints/epoch=109-w1p=0.0010768-w1m=0.0172--w1efp=0.001217.ckpt"
     else:
         config["load_ckpt"]= "/beegfs/desy/user/kaechben/pointflow_t/epoch=5549-val_fpnd=57.51-val_w1m=0.0094-val_w1efp=0.000221-val_w1p=0.00085.ckpt"
+    if len(logger.experiment.config.keys())>0:
+        config.update(**logger.experiment.config)
+        config["l_dim"]=config["l_dim"]*config["heads"]
+        config["l_dim_gen"]=config["l_dim_gen"]*config["heads_gen"]
+    print(logger.experiment.dir)
+    # if not config["load_ckpt_trafo"]:
+    data_module = JetNetDataloader(config)
+    data_module.setup("training")
     print("config:", logger.experiment.config)
-    model = ProGamer(
-        config,  data_module.num_batches
-    )
+    model = ProGamer(num_batches= data_module.num_batches,**config)
     # else:
     #     print("model loaded")
     #     ckpt=config["load_ckpt_trafo"]
     #     model=ProGamer.load_from_checkpoint(config["load_ckpt_trafo"]).eval()
-    config=model.config
 
-    model.config=config
       # this loads the data
     model.data_module = data_module
       # the sets up the model,  config are hparams we want to optimize
-    
     trainer = pl.Trainer(
-        gpus=-1,
+        gpus=1,
         logger=logger,
         log_every_n_steps=data_module.num_batches//2,  # auto_scale_batch_size="binsearch",
         max_epochs=config["max_epochs"]*10,
@@ -110,10 +78,12 @@ def train(config,  load_ckpt=False, i=0, root=None):
         check_val_every_n_epoch=config["val_check"],
         num_sanity_val_steps=1,  # gradient_clip_val=.02, 
         fast_dev_run=False,
-        track_grad_norm=2,
-        default_root_dir=root,
-        reload_dataloaders_every_n_epochs=0#,config["val_check"] if not config["smart_batching"] else 0,
+        track_grad_norm=1,
+        default_root_dir="/beegfs/desy/user/kaechben/pf_"+config["parton"],
+        reload_dataloaders_every_n_epochs=0,#,config["val_check"] if not config["smart_batching"] else 0,
+        profiler="simple"
     )
+    print(trainer.default_root_dir)
     # This calls the fit function which trains the model
     print("This is run: ",logger.experiment.name)
     trainer.fit(model, datamodule=data_module)#,ckpt_path=ckpt
@@ -128,99 +98,41 @@ if __name__ == "__main__":
     #     config=yaml.load(stream,Loader=yaml.Loader)
     #     config=config["config"]
 
-    hyperopt=True
+
     config = { 
-        "val_check": 100,
+        "val_check": 25,
         "parton": parton,
         "warmup": 1200,
         "sched": "linear",
         "freq": 5,
-        "batch_size": 1024,
+        "batch_size": 2048,
         "dropout": 0.01,
         "opt": "Adam",
         "lr_g": 0.001,
-        "ratio": 1,
         "l_dim": 100,
         "no_hidden_gen": False,
         "hidden": 512,
         "max_epochs": 1200,
         "name": "ProGamer",
-        "n_part": 30,
-        "n_start":30,
+        "n_part": 150,
+        "n_start":150,
         "n_dim": 3,
         "heads": 2,
         "flow_prior": True,
-        "load_ckpt_trafo":True,#'/home/kaechben/ProGamer/start_fpnd_022_w1m_08.ckpt',
-        "swa":True,
-        "swagen":True,
+        #"load_ckpt_trafo":True,#'/home/kaechben/ProGamer/start_fpnd_022_w1m_08.ckpt',
         "add_corr":True,
-        "frac_pretrain":0.05,
-        "cls":True,
         "num_layers":4,
-        "latent":50,
+        "latent":None,
         "activation":"gelu",
+        "activation_gen":"gelu",
         "smart_batching":True,
         "aux":False,
         "proj":True,
-        "latent":True
+        "dropout_gen":0.3,
+        "proj_gen":False,
+        "num_layers_gen":4,
+        "swa":False,
+        "swa_gen":False
         }
-    
     config["parton"] =parton
-
-    # start a run
-    # wandb.init(config=config,project="progamer_top")
-    # update any values not set by sweep
-
-    # if hyperopt:
-
-    #     # config["no_hidden"]=np.random.choice([True,False,"more"])
-    #     # config["no_hidden"]=config["no_hidden"]=="True" or config["no_hidden"]=="more"
-
-        
-    #     #config["max_epochs"]=int(config["max_epochs"])#*np.random.choice([2]))
-        
-    #     config["sched"]=np.random.choice(["cosine2","linear"])
-        
-    #     config["freq"]=np.random.choice([5])    # config["opt"]="Adam"
-    #     config["batch_size"]=int(np.random.choice([128,512]))    # config["opt"]="Adam"
-    #     config["dropout"]=np.random.choice([0.15,0.05,0.01])    
-    #     config["opt"]=np.random.choice(["Adam","RMSprop"])#"AdamW","mixed"
-    #     config["lr_g"]=np.random.choice([0.0003,0.0001])  
-    #     config["ratio"]=np.random.choice([0.9,1,1.1,])
-    #     # config["cls"]=np.random.choice([False,True])
-    #     config["normfirst"]=np.random.choice([True])
-        
-    #     config["fc_disc"]=np.random.choice([True])
-    #     config["swa"]=np.random.choice([True,False])
-    #     config["swagen"]=np.random.choice([True,False])
-
-    #     config["num_layers"]=np.random.choice([4])
-    #     config["l_dim"]=np.random.choice([25,15,30])
-    #     config["hidden"]=np.random.choice([512,756,1024])
-    #     config["n_part"]=np.random.choice([30,50,80,30])
-
-    #     config["heads"]=np.random.choice([4,5])
-    #     config["val_check"]=5
-
-    #     config["lr_d"]=config["lr_g"]*config["ratio"]
-    #     config["l_dim"] = config["l_dim"] * config["heads"]      
-    #     config["name"] = config["name"]+config["parton"]
-    #     config["no_hidden_gen"]=np.random.choice([True,False,"more"])
-    #     config["max_epochs"]=np.random.choice([1200])  
-    #     config["warmup"]=int(np.random.choice([0.4,0.6,0.8])*config["max_epochs"])
-    #     config["name"]="progamer_"+parton
-    #     config["frac_pretrain"]=0.05
-    #     config["load_ckpt"]= "/beegfs/desy/user/kaechben/pointflow_t/epoch=5549-val_fpnd=57.51-val_w1m=0.0094-val_w1efp=0.000221-val_w1p=0.00085.ckpt"
-    # else:
-
-    #     print("hyperopt off"*100)
-    #     config["name"]="bestever_"+parton#config["parton"]
-
-    # if len(sys.argv) > 2:
-    #     root = "/beegfs/desy/user/"+ os.environ["USER"]+"/"+config["name"]+"/"+config["parton"]+"_" +"run"+sys.argv[1]+"_"+str(sys.argv[2])
-    # else:
-    root = "/beegfs/desy/user/" + os.environ["USER"] + "/"+ config["name"]
-
-
-    train(config, root=root,)#load_ckpt=ckpt
-   
+    train(config, )#load_ckpt=ckptroot=root,

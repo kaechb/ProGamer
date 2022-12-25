@@ -10,6 +10,38 @@ import copy
 import torch
 import torch.nn as nn
 from functools import partial
+from math import sqrt
+class EqualLR:
+    def __init__(self, name):
+        self.name = name
+
+    def compute_weight(self, module):
+        weight = getattr(module, self.name + '_orig')
+        fan_in = weight.data.size(1) * weight.data[0][0].numel()
+
+        return weight * sqrt(2 / fan_in)
+
+    @staticmethod
+    def apply(module, name):
+        fn = EqualLR(name)
+
+        weight = getattr(module, name)
+        del module._parameters[name]
+        module.register_parameter(name + '_orig', nn.Parameter(weight.data))
+        module.register_forward_pre_hook(fn)
+
+        return fn
+
+    def __call__(self, module, input):
+        weight = self.compute_weight(module)
+        setattr(module, self.name, weight)
+
+
+def equal_lr(module, name='weight'):
+    EqualLR.apply(module, name)
+
+    return module
+
 class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):
     def __init__(self, optimizer, warmup, max_iters):
         self.warmup = warmup
@@ -27,6 +59,7 @@ class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):
         return lr_factor
 
 
+    # average Batch Normalization's statistics (Should we stick with EMA for BacthNorm?)
 
 def to_canonical(data, rev=False):
     n_dim = data.shape[1]
