@@ -115,7 +115,7 @@ def fpd_infinity(
 
     return (params[0], np.sqrt(np.diag(covs)[0]))
 def fgd(real_scaled,fake_scaled,n,p):
-    gen_efps = jetnet.utils.efps(real_scaled.detach().numpy(), efpset_args=[("d<=", 4)], efp_jobs=None)
+    gen_efps = jetnet.utils.efps(fake_scaled.detach().numpy(), efpset_args=[("d<=", 4)], efp_jobs=None)
     efp_file =f"/beegfs/desy/user/kaechben/efps/"+p+"_"+str(n)+".npy"
     if exists(efp_file):
         real_efps = np.load(efp_file)

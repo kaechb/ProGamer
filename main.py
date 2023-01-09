@@ -25,7 +25,8 @@ from torch.nn import functional as FF
 # from plotting import plotting
 
 # from comet_ml import Experiment
-
+def lcm(a,b):
+  return (a * b) // math.gcd(a,b)
 
 def train(config,  load_ckpt=False):
     # This function is a wrapper for the hyperparameter optimization module called ray
@@ -43,7 +44,7 @@ def train(config,  load_ckpt=False):
     logger = WandbLogger(save_dir="/beegfs/desy/user/kaechben/pf_"+config["parton"],sync_tensorboard=True,
                 project="progamer_top",)# TensorBoardLogger(root)#,version=version_name
     callbacks = [
-    EarlyStopping(monitor="w1m", min_delta=0.00, patience=20,  mode="min",divergence_threshold=10,verbose=True),
+    EarlyStopping(monitor="w1m", min_delta=0.00, patience=40,  mode="min",divergence_threshold=10,verbose=True),
     ModelCheckpoint(monitor="w1m",save_top_k=3,mode="min",filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",every_n_epochs=10),
     ModelCheckpoint(monitor="fpnd",save_top_k=3,mode="min",filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",every_n_epochs=10)]
     if config["n_part"]<30:
@@ -52,13 +53,15 @@ def train(config,  load_ckpt=False):
         config["load_ckpt"]= "/beegfs/desy/user/kaechben/pointflow_t/epoch=5549-val_fpnd=57.51-val_w1m=0.0094-val_w1efp=0.000221-val_w1p=0.00085.ckpt"
     if len(logger.experiment.config.keys())>0:
         config.update(**logger.experiment.config)
-        config["l_dim"]=config["l_dim"]*config["heads"]
-        config["l_dim_gen"]=config["l_dim_gen"]*config["heads_gen"]
+        config["l_dim"]=lcm(config["l_dim"],config["heads"])
+        config["l_dim_gen"]=lcm(config["l_dim_gen"],config["heads_gen"])
+        config["lr_d"]=config["lr_g"]*config["ratio"]
+        print(config["lr_d"],config["lr_g"],config["ratio"])
     print(logger.experiment.dir)
     # if not config["load_ckpt_trafo"]:
     data_module = JetNetDataloader(config)
     data_module.setup("training")
-    print("config:", logger.experiment.config)
+    print("config:", config)
     model = ProGamer(num_batches= data_module.num_batches,**config)
     # else:
     #     print("model loaded")
@@ -76,12 +79,12 @@ def train(config,  load_ckpt=False):
         callbacks=callbacks,
         progress_bar_refresh_rate=0,
         check_val_every_n_epoch=config["val_check"],
-        num_sanity_val_steps=1,  # gradient_clip_val=.02, 
+        num_sanity_val_steps=0,  # gradient_clip_val=.02, 
         fast_dev_run=False,
         track_grad_norm=1,
         default_root_dir="/beegfs/desy/user/kaechben/pf_"+config["parton"],
         reload_dataloaders_every_n_epochs=0,#,config["val_check"] if not config["smart_batching"] else 0,
-        profiler="simple"
+        #profiler="pytorch"
     )
     print(trainer.default_root_dir)
     # This calls the fit function which trains the model
@@ -105,13 +108,17 @@ if __name__ == "__main__":
         "dropout": 0.01,
         "opt": "Adam",
         "lr_g": 0.001,
+        "lr_d": 0.001,
         "l_dim": 100,
+        'l_dim_gen':20, 
+        'hidden_gen':False,
+        'heads_gen':4,
         "no_hidden_gen": False,
         "hidden": 512,
         "max_epochs": 1200,
         "name": "ProGamer",
-        "n_part": 150,
-        "n_start":150,
+        "n_part": 30,
+        "n_start":30,
         "n_dim": 3,
         "heads": 2,
         "flow_prior": True,
@@ -128,7 +135,13 @@ if __name__ == "__main__":
         "proj_gen":False,
         "num_layers_gen":4,
         "swa":False,
-        "swa_gen":False
+        "swa_gen":False,
+        "affine":True,
+        "slope":0.2,
+        "aux":False,
+        "bias":True,
+        "beta1":0.0,
+        "beta2":0.0
         }
     config["parton"] =parton
     train(config, )#load_ckpt=ckptroot=root,

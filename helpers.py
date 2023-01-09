@@ -145,7 +145,7 @@ class Scheduler(_LRScheduler):
 
 
 def calc_lr(step, dim_embed, warmup_steps):
-    return dim_embed**(-0.5) * min(step**(-0.5), step * warmup_steps**(-1.5))
+        return dim_embed**(-0.5) * min(step**(-0.5), step * warmup_steps**(-1.5))
 
 class Rational(torch.nn.Module):
     """Rational Activation function.
@@ -174,5 +174,4 @@ class Rational(torch.nn.Module):
         PQ = X @ self.coeffs
         output = torch.div(PQ[..., 0], PQ[..., 1])
         return output
-
 
