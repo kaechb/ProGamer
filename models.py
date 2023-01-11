@@ -22,9 +22,10 @@ class Block(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.pre_fc_norm = nn.LayerNorm(embed_dim,elementwise_affine=affine)
         self.fc1 = nn.Linear(embed_dim, self.ffn_dim)
+        self.fc2 = nn.Linear(self.ffn_dim, embed_dim)
         self.act = nn.GELU() if activation == 'gelu' else nn.LeakyReLU()
         self.act_dropout = nn.Dropout(dropout)
-        self.fc2 = nn.Linear(self.ffn_dim, embed_dim)
+        
 
         self.hidden=hidden
     def forward(self, x, x_cls=None, src_key_padding_mask=None, attn_mask=None):
@@ -84,16 +85,16 @@ class BlockGen(nn.Module):
             encoded output of shape `(batch,seq_len, embed_dim)`
         """
         
-        residual = x
+        residual = x#
         
-        x = self.pre_attn_norm(x)
         #x = self.attn( x,x_cls, x_cls, attn_mask=attn_mask)[0]  # (seq_len, batch, embed_dim)
-        x = x_cls.expand(-1,x.shape[1],-1).clone()
+        x = x_cls.expand(x.shape[0],x.shape[1],-1).clone()
         #x = self.dropout(x)
         # if self.proj:
         #     x=self.projection(torch.cat((x,residual),axis=-1))
         # else:
         x += residual
+        x=self.pre_attn_norm(x)
         residual = x
         if self.hidden:
             x = self.pre_fc_norm(x)
@@ -114,8 +115,6 @@ class Gen(nn.Module):
         self.hidden_nodes = int(hidden_gen)
         self.n_dim = n_dim
         self.n_part=n_part
-        if latent:
-            self.up=nn.Linear(latent,n_dim*n_part)
         self.encoder = nn.ModuleList([Block(embed_dim=l_dim_gen, num_heads=heads_gen,hidden=self.hidden_nodes,dropout=dropout_gen,proj=proj_gen,activation=activation_gen,affine=affine,bias=bias)
             for i in range(num_layers_gen)])
         self.encoder_gen = nn.ModuleList([BlockGen(embed_dim=l_dim_gen, num_heads=heads_gen,hidden=self.hidden_nodes,dropout=dropout_gen,proj=proj_gen,activation=activation_gen,affine=affine,bias=bias) for i in range(num_layers_gen)])
@@ -124,7 +123,6 @@ class Gen(nn.Module):
         self.out = nn.Linear(l_dim_gen, n_dim,bias=bias)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, l_dim_gen), requires_grad=True)
 
-        self.act = nn.GELU()
         
         
 
@@ -152,8 +150,6 @@ class Disc(nn.Module):
         self.hidden2 = nn.Linear(int(hidden), l_dim,bias=bias )
 
         self.fc_aux= nn.Linear(l_dim , l_dim )
-        self.batchnorm1=nn.BatchNorm1d(hidden)
-        self.batchnorm2=nn.BatchNorm1d(l_dim)
 
         self.fc2_aux = nn.Linear(l_dim , l_dim )
         self.out = nn.Linear(l_dim , 1,bias=bias)
@@ -180,9 +176,7 @@ class Disc(nn.Module):
         res=x
         x = leaky(self.hidden(x), self.slope)
         #x = leaky(self.hidden(x), self.slope)
-        x = leaky(self.hidden2(x), self.slope)+res
-        # x = leaky(self.batchnorm(self.hidden(x)), self.slope)
-        # x = leaky(self.batchnorm2(self.hidden2(x)), self.slope)
+        x = leaky(self.hidden2(x), self.slope)
         if aux:
             return self.out(x),m,p
         else:

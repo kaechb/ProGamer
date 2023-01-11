@@ -25,7 +25,7 @@ from torch.nn import functional as FF
 from torch.nn.functional import leaky_relu, sigmoid
 from torch.optim.swa_utils import AveragedModel
 
-from helpers import CosineWarmupScheduler, EqualLR, Scheduler, equal_lr
+from helpers import CosineWarmupScheduler, EqualLR, Scheduler, equal_lr,get_model_weights
 from pointflow import PF
 
 sys.path.insert(1, "/home/kaechben/plots")
@@ -67,7 +67,7 @@ class ProGamer(pl.LightningModule):
         self.start_gen=False
         self.add_corr = kwargs["add_corr"]
         self.d_losses=torch.ones(20)
-
+        self.eval_=kwargs["eval"]
         self.gen_net = Gen(**kwargs)
         self.dis_net = Disc(**kwargs)
         self.beta1= kwargs["beta1"]
@@ -83,6 +83,10 @@ class ProGamer(pl.LightningModule):
         self.aux = kwargs["aux"]
         self.parton = kwargs["parton"]
         self.k=0
+        self.step=1
+        self.criterionH = nn.MSELoss()
+        self.averageD=None
+        self.averageG=None
         for p in self.dis_net.parameters():
             if p.dim() > 1:
                 nn.init.xavier_normal(p)
@@ -108,7 +112,8 @@ class ProGamer(pl.LightningModule):
 
     def on_validation_epoch_start(self, *args, **kwargs):
         self.dis_net.train()
-        self.gen_net.eval()
+        if self.eval_:
+            self.gen_net.eval()
         if self.flow_prior:
             self.flow.eval()
             self.flow = self.flow.to("cpu")
@@ -120,7 +125,8 @@ class ProGamer(pl.LightningModule):
             self.flow = self.flow.to("cuda")
         self.gen_net = self.gen_net.to("cuda")
         self.dis_net = self.dis_net.to("cuda")
-
+        self.dis_net.train()
+        self.gen_net.train()
     def load_datamodule(self, data_module):
         """needed for lightning training to work, it just sets the dataloader for training and validation"""
         self.data_module = data_module
@@ -247,9 +253,20 @@ class ProGamer(pl.LightningModule):
             return [ opt_d, opt_g]
 
     def train_disc(self,batch,mask,opt_d):
+        # err_hD=0
+        # if self.current_epoch > 50:
+        #     if not self.averageD:
+        #         print("Starting historical weight averaging for discriminator")
+        #         self.averageD = get_model_weights(self.dis_net)
+        #     paramsD = dict(self.dis_net.named_parameters())
+        #     for p in paramsD:
+        #         err_hD += self.criterionH(paramsD[p], self.averageD[p])
+        #         self.averageD[p] = (self.averageD[p] * (self.step-1) + paramsD[p].detach())/self.step
+        #     err_hD.backward()
         with torch.no_grad():
             self.dis_net.train()
-            #self.gen_net.eval()
+            if self.eval_:
+                self.gen_net.eval()
             fake = self.sampleandscale(batch, mask, scale=False)
             target_real = torch.ones_like(batch[:,0,0].unsqueeze(-1))
             target_fake = torch.zeros_like(fake[:,0,0].unsqueeze(-1))
@@ -272,6 +289,16 @@ class ProGamer(pl.LightningModule):
             print("passed test disc")
 
     def train_gen(self,batch,mask,opt_g):
+        # err_hG=0
+        # if self.current_epoch > 50:
+        #     if not self.averageG:
+        #         print("Starting historical weight averaging for discriminator")
+        #         self.averageG = get_model_weights(self.dis_net)
+        #     paramsG = dict(self.dis_net.named_parameters())
+        #     for p in paramsG:
+        #         err_hG += self.criterionH(paramsG[p], self.averageG[p])
+        #         self.averageG[p] = (self.averageG[p] * (self.step-1) + paramsG[p].detach())/self.step
+        #     err_hG.backward()
         #self.gen_net.eval()
         self.dis_net.train()
         opt_g.zero_grad()

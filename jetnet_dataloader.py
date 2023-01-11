@@ -15,10 +15,8 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader,TensorDataset,Dataset
 def custom_collate(data): #(2)
         # x=torch.cat(torch.unsqueeze(data,0),)
-        
         data=torch.stack(data)
         n=(~data[:,:,-1].bool()).sum(1).max()
-
         return data[:,:int(n)]
 class StandardScaler:
     def __init__(self, mean=None, std=None, epsilon=1e-7):
@@ -156,16 +154,11 @@ class JetNetDataloader(pl.LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(self.test_set[:,:self.n_part], batch_size=len(self.test_set), drop_last=True,num_workers=40)
-    def custom_collate(data): #(2)
-        masks=~(data[:,:,-1].bool())
-        sel=torch.ones(len(data),data.sum(1).max())
-        inputs = data[sel]
-        return inputs
-        
+
 
 if __name__=="__main__":
     config = { 
-        "n_part": 150,
+        "n_part": 30,
         "n_dim": 3,
         "batch_size": 1024,
         "parton": "t",

@@ -47,10 +47,10 @@ def train(config,  load_ckpt=False):
     EarlyStopping(monitor="w1m", min_delta=0.00, patience=40,  mode="min",divergence_threshold=10,verbose=True),
     ModelCheckpoint(monitor="w1m",save_top_k=3,mode="min",filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",every_n_epochs=10),
     ModelCheckpoint(monitor="fpnd",save_top_k=3,mode="min",filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",every_n_epochs=10)]
-    if config["n_part"]<30:
-        config["load_ckpt"]="/beegfs/desy/user/kaechben/pf_t/pointflow/1pn8k3fp/checkpoints/epoch=109-w1p=0.0010768-w1m=0.0172--w1efp=0.001217.ckpt"
-    else:
-        config["load_ckpt"]= "/beegfs/desy/user/kaechben/pointflow_t/epoch=5549-val_fpnd=57.51-val_w1m=0.0094-val_w1efp=0.000221-val_w1p=0.00085.ckpt"
+    # if config["n_part"]<30:
+    #     config["load_ckpt"]="/beegfs/desy/user/kaechben/pf_t/pointflow/1pn8k3fp/checkpoints/epoch=109-w1p=0.0010768-w1m=0.0172--w1efp=0.001217.ckpt"
+    # else:
+    #     config["load_ckpt"]= "/beegfs/desy/user/kaechben/pointflow_t/epoch=5549-val_fpnd=57.51-val_w1m=0.0094-val_w1efp=0.000221-val_w1p=0.00085.ckpt"
     if len(logger.experiment.config.keys())>0:
         config.update(**logger.experiment.config)
         config["l_dim"]=lcm(config["l_dim"],config["heads"])
@@ -62,11 +62,13 @@ def train(config,  load_ckpt=False):
     data_module = JetNetDataloader(config)
     data_module.setup("training")
     print("config:", config)
-    model = ProGamer(num_batches= data_module.num_batches,**config)
+    if False:
+        model = ProGamer(num_batches= data_module.num_batches,**config)
     # else:
     #     print("model loaded")
     #     ckpt=config["load_ckpt_trafo"]
-    #     model=ProGamer.load_from_checkpoint(config["load_ckpt_trafo"]).eval()
+    else:
+        model=ProGamer.load_from_checkpoint(load_ckpt).eval()
 
       # this loads the data
     model.data_module = data_module
@@ -75,7 +77,7 @@ def train(config,  load_ckpt=False):
         gpus=1,
         logger=logger,
         log_every_n_steps=data_module.num_batches//2,  # auto_scale_batch_size="binsearch",
-        max_epochs=config["max_epochs"]*10,
+        max_epochs=config["max_epochs"],
         callbacks=callbacks,
         progress_bar_refresh_rate=0,
         check_val_every_n_epoch=config["val_check"],
@@ -89,7 +91,7 @@ def train(config,  load_ckpt=False):
     print(trainer.default_root_dir)
     # This calls the fit function which trains the model
     print("This is run: ",logger.experiment.name)
-    trainer.fit(model, datamodule=data_module,)#,ckpt_path=ckpt,ckpt_path=config["load_ckpt_trafo"],
+    trainer.fit(model, datamodule=data_module,ckpt_path=load_ckpt)#,ckpt_path=ckpt,ckpt_path=config["load_ckpt_trafo"],
 
 if __name__ == "__main__":
 
@@ -115,7 +117,7 @@ if __name__ == "__main__":
         'heads_gen':4,
         "no_hidden_gen": False,
         "hidden": 512,
-        "max_epochs": 1200,
+        "max_epochs": 3600,
         "name": "ProGamer",
         "n_part": 30,
         "n_start":30,
@@ -141,7 +143,9 @@ if __name__ == "__main__":
         "aux":False,
         "bias":True,
         "beta1":0.0,
-        "beta2":0.0
+        "beta2":0.0,
+        "eval":True,
+    
         }
     config["parton"] =parton
-    train(config, )#load_ckpt=ckptroot=root,
+    train(config,load_ckpt="/beegfs/desy/user/kaechben/pf_t/ProGamer/ulvuytc5/checkpoints/epoch=1199-fpnd=0.981-w1m=0.0022--w1efp=0.000060-v1.ckpt" )#load_ckpt=ckptroot=root,

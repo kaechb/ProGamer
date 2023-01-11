@@ -41,7 +41,12 @@ def equal_lr(module, name='weight'):
     EqualLR.apply(module, name)
 
     return module
-
+def get_model_weights(net):
+    average = {}
+    params = dict(net.named_parameters())
+    for p in params:
+        average[p] = params[p].detach()    
+    return average    
 class CosineWarmupScheduler(optim.lr_scheduler._LRScheduler):
     def __init__(self, optimizer, warmup, max_iters):
         self.warmup = warmup

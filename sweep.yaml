@@ -1,48 +1,73 @@
 program: main.py
-method: bayes
+method: random
 metric:
-  name: fpnd
+  name: w1m
   goal: minimize
 parameters:
+  beta1:
+    values: [.5,.9,.99]
+  beta2:
+    values: [.5,.9]
   lr_g:
-    distribution: log_uniform
-    min: -5
-    max: -3
+    values: [0.0001,0.0005]
   num_layers:
-    distribution: int_uniform
-    min: 2
-    max: 6
+    values: [4,5,6]
   hidden:
-    distribution: int_uniform
-    min: 128
-    max: 1024
+    values: [512,1024]
+  hidden_gen:
+    values: [512,1024]
+  l_dim:
+    values: [3,5,10]
   sched:
     distribution: categorical
-    values:
-      - "linear"
-      - "cosine2"
+    values: ["linear","cosine"]#
   dropout:
-    min: 0.0
-    max: 0.4
+    values: [0.2,0.4,.5]
   heads:
-    distribution: int_uniform
-    min: 1
-    max: 8
+    values: [2,4,8]
+  eval:
+    values: [True,False]
   opt:
     distribution: categorical
-    values: ["Adam", "RMSprop"]
-  "swa":
-    values: [True, False]
-  "flow_prior":
-    values: [True, False]
-  "add_corr":
-    values: [True, False]
-  "swagen":
-    values: [True, False]
-  "add_corr":
-    values: [True, False]
-  "fc_disc":
-    values: [True, False]
-  "cls":
-    values: [True, False]
+    values: ["AdamW","Adam"]
+  activation:
+    values: ["gelu","leakyrelu"]
+  proj:
+    values: [True]
+  flow_prior:
+    values: [False]
+  latent:
+    values:  [False]
+  add_corr:
+    values: [True]
+  n_part:
+    values: [30]
+  num_layers_gen:
+    values: [4,8,12]
+  l_dim_gen:
+    values: [5,10,20]
+  dropout_gen:
+    values: [0.2,0.4,0.5]
+  heads_gen:
+    values: [4,8]
+  activation_gen:
+    values: ["gelu"]
+  proj_gen:
+    values: [False]
+  affine:
+    values: [True]
+  ratio:
+    values: [0.5,2,3]
+  swa:
+    values: [False]
+  swagen:
+    values: [False]
+  batch_size:
+    values:  [512]
+  slope:
+    values:  [0.2]
+  aux:
+    values: [False]
+  bias:
+    values: [True]
   
