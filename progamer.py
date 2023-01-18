@@ -48,8 +48,8 @@ class ProGamer(pl.LightningModule):
         self.automatic_optimization = False
         self.kwargs=kwargs
         self.n_part=kwargs["n_part"]
-        self.flow_prior=kwargs["flow_prior"]
-       
+        self.flow_prior=False#kwargs["flow_prior"]
+        kwargs["activation"]="gelu"
         self.freq_d =kwargs["freq"]
         self.n_dim = kwargs["n_dim"]
 
@@ -67,7 +67,7 @@ class ProGamer(pl.LightningModule):
         self.start_gen=False
         self.add_corr = kwargs["add_corr"]
         self.d_losses=torch.ones(20)
-
+        self.eval_=kwargs["eval"]
         self.gen_net = Gen(**kwargs)
         self.dis_net = Disc(**kwargs)
         self.beta1= kwargs["beta1"]
@@ -108,19 +108,20 @@ class ProGamer(pl.LightningModule):
 
     def on_validation_epoch_start(self, *args, **kwargs):
         self.dis_net.train()
-        self.gen_net.eval()
+        self.gen_net.train()
         if self.flow_prior:
             self.flow.eval()
             self.flow = self.flow.to("cpu")
         self.dis_net = self.dis_net.cpu()
         self.gen_net = self.gen_net.cpu()
-
+        
     def on_validation_epoch_end(self, *args, **kwargs):
         if self.flow_prior:
             self.flow = self.flow.to("cuda")
         self.gen_net = self.gen_net.to("cuda")
         self.dis_net = self.dis_net.to("cuda")
-
+        self.gen_net.train()
+        self.dis_net.train()
     def load_datamodule(self, data_module):
         """needed for lightning training to work, it just sets the dataloader for training and validation"""
         self.data_module = data_module
@@ -233,7 +234,7 @@ class ProGamer(pl.LightningModule):
         # mlosses are initialized with None during the time it is not turned on, makes it easier to plot
         if self.opt == "Adam":
             opt_g = torch.optim.Adam(self.gen_net.parameters(), lr=self.lr_g, betas=(self.beta1, self.beta2))
-            opt_d = torch.optim.Adam(self.dis_net.parameters(), lr=self.lr_d,betas=(self.beta1, self.beta2))# 
+            opt_d = torch.optim.Adam(self.dis_net.parameters(), lr=self.lr_d,betas=(0, self.beta2))# 
         elif self.opt == "RMSprop":
             opt_g = torch.optim.RMSprop(self.gen_net.parameters(), lr=self.lr_g)
             opt_d = torch.optim.RMSprop(self.dis_net.parameters(), lr=self.lr_d)
@@ -249,7 +250,9 @@ class ProGamer(pl.LightningModule):
     def train_disc(self,batch,mask,opt_d):
         with torch.no_grad():
             self.dis_net.train()
-            #self.gen_net.eval()
+            if self.eval_:
+
+                self.gen_net.eval()
             fake = self.sampleandscale(batch, mask, scale=False)
             target_real = torch.ones_like(batch[:,0,0].unsqueeze(-1))
             target_fake = torch.zeros_like(fake[:,0,0].unsqueeze(-1))
@@ -272,7 +275,10 @@ class ProGamer(pl.LightningModule):
             print("passed test disc")
 
     def train_gen(self,batch,mask,opt_g):
-        #self.gen_net.eval()
+        if self.eval_:
+            self.gen_net.eval()
+        else:
+            self.gen_net.train()
         self.dis_net.train()
         opt_g.zero_grad()
         fake = self.sampleandscale(batch, mask, scale=False)
@@ -318,6 +324,8 @@ class ProGamer(pl.LightningModule):
         """This calculates some important metrics on the hold out set (checking for overtraining)"""
         if self.smart_batching:
             self.n_current=batch.shape[1]
+        if self.eval_:
+            self.gen_net.eval()
         mask = batch[:, :self.n_current,self.n_dim].bool().cpu()
         batch = batch[:, :self.n_current,:self.n_dim].cpu()
         mask_test=self.sample_n(mask).bool()

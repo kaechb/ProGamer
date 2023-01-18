@@ -44,7 +44,7 @@ def train(config,  load_ckpt=False):
     logger = WandbLogger(save_dir="/beegfs/desy/user/kaechben/pf_"+config["parton"],sync_tensorboard=True,
                 project="progamer_top",)# TensorBoardLogger(root)#,version=version_name
     callbacks = [
-    EarlyStopping(monitor="w1m", min_delta=0.00, patience=40,  mode="min",divergence_threshold=10,verbose=True),
+    EarlyStopping(monitor="w1m", min_delta=0.00, patience=4000,  mode="min",divergence_threshold=10,verbose=True),
     ModelCheckpoint(monitor="w1m",save_top_k=3,mode="min",filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",every_n_epochs=10),
     ModelCheckpoint(monitor="fpnd",save_top_k=3,mode="min",filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",every_n_epochs=10)]
     if config["n_part"]<30:

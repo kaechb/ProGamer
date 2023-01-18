@@ -48,7 +48,7 @@ def train(config,  load_ckpt=False, i=0, root=None):
         )
     ]
     logger = WandbLogger(save_dir="/beegfs/desy/user/kaechben/pf_"+config["parton"],sync_tensorboard=True,
-                project="progamer_top")# TensorBoardLogger(root)#,version=version_name
+                project="equiflow")# TensorBoardLogger(root)#,version=version_name
     for key in logger.experiment.config.keys():
         config[key]=logger.experiment.config[key]
     # tags=[]
@@ -109,7 +109,6 @@ if __name__ == "__main__":
         "opt": "Adam",
         "lr_nf": 0.001,
         "max_epochs":120,
-        "hidden": 80,
         "name": "PointFlow",
         "n_part": 30,
         "n_start":30,
@@ -120,9 +119,9 @@ if __name__ == "__main__":
         "coupling_layers":8,
         "network_layers_nf":2,
         "tail_bound":6,
-        "bins":8,
+        "bins":4,
         "smart_batching":True,
-        "context_features":5,
+        "context_features":0,
         "val_check": 100,
         "parton": parton,
         "warmup": 1200,
@@ -135,7 +134,7 @@ if __name__ == "__main__":
         "ratio": 1,
         "l_dim": 100,
         "no_hidden_gen": False,
-        "hidden": 512,
+        "hidden": 10,
         "max_epochs": 1200,
         "name": "ProGamer",
         "n_part": 30,
@@ -149,7 +148,7 @@ if __name__ == "__main__":
         "add_corr":True,
         "frac_pretrain":0.05,
         "cls":True,
-        "num_layers":4,
+        "num_layers":2,
         "latent":50,
         "activation":"gelu",
         "smart_batching":True,
@@ -160,7 +159,7 @@ if __name__ == "__main__":
         "heads_gen":2,
         "hidden_gen":20,
         "train_gan":True,
-        "network_nodes":300,
+        "network_nodes":10,
         "network_layers":3
 
 

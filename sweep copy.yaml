@@ -5,9 +5,9 @@ metric:
   goal: minimize
 parameters:
   beta1:
-    values: [0]
+    values: [.9,.99,.999]
   beta2:
-    values: [.5,.1,.9]
+    values: [.9,.99]
   lr_g:
     values: [0.0001,0.0005]
   num_layers:
@@ -28,7 +28,7 @@ parameters:
   eval:
     values: [True,False]
   activation:
-    values: ["gelu"]
+    values: ["gelu","leakyrelu"]
   num_layers_gen:
     values: [2,4,6]
   l_dim_gen:
@@ -36,10 +36,22 @@ parameters:
   dropout_gen:
     values: [0.2,0.4,0.5]
   heads_gen:
-    values: [16,8,12]
+    values: [2,4,8,12]
   activation_gen:
     values: ["gelu"]
   ratio:
     values: [0.5,1,1.5]
-  res:
+  norm_first:
     values: [True,False]
+  historical:
+    values: [True,False]
+  bn:
+    values: [True,False]
+  linear:
+    values: [True]
+  equallr:
+    values: [True,False]
+  tokendim:
+    values: [1,5,10]
+  power:
+    values: [False]

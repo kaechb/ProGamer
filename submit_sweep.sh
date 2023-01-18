@@ -26,7 +26,7 @@ wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
 # wandb sweep sweep.yaml
 # wandb agent $SWEEP_ID
 
-wandb agent --count 1 tyajxpn5 #1kx1wxl5  # big one for jetnet up to 150: 1no150ub
+wandb agent --count 1 u6cqxnz5 #1kx1wxl5  # big one for jetnet up to 150: 1no150ub
 # nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
 path=ProGamer
 POSTFIX=$(date -d "today" +"%d_%H_%M")
