@@ -26,7 +26,6 @@ wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
 # wandb sweep sweep.yaml
 # wandb agent $SWEEP_ID
 
-wandb agent --count 1 u6cqxnz5 #1kx1wxl5  # big one for jetnet up to 150: 1no150ub
 # nodes=$(scontrol show hostnames "$SLURM_JOB_NODELIST")
 path=ProGamer
 POSTFIX=$(date -d "today" +"%d_%H_%M")
@@ -34,9 +33,11 @@ echo $POSTFIX
 mkdir /beegfs/desy/user/kaechben/code/${POSTFIX}
 cp /home/$USER/$path/*.py /beegfs/desy/user/kaechben/code/${POSTFIX}
 cp /home/$USER/$path/*.sh /beegfs/desy/user/kaechben/code/${POSTFIX}
+cp /home/$USER/$path/*.yaml /beegfs/desy/user/kaechben/code/${POSTFIX}
 # nodes_array=($nodes)
 # head_node=${nodes_array[0]}
 # head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
+wandb agent --count 1 owjnikup #1kx1wxl5  # big one for jetnet up to 150: 1no150ub
 
 # echo $nodes
 # # if we detect a space character in the head node IP, we'll

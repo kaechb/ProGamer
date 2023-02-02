@@ -4,13 +4,14 @@ import time
 import traceback
 
 import matplotlib.pyplot as plt
-import nflows as nf
+
 import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 import torch
 import torch.autograd as autograd
 from jetnet.evaluation import cov_mmd, fpnd, w1efp, w1m, w1p
+import nflows as nf
 from nflows.flows import base
 from nflows.nn import nets
 from nflows.transforms.base import CompositeTransform
@@ -27,7 +28,7 @@ from torch.optim.swa_utils import AveragedModel
 sys.path.insert(1, "/home/kaechben/plots")
 from functools import partial
 from plotswb import *
-from models import *
+from models_new import *
 from metrics import *
 # class
 class EquiBlock(nn.Module):
@@ -201,6 +202,8 @@ class JetFlow(pl.LightningModule):
 
     def on_validation_epoch_start(self, *args, **kwargs):
         self.flow.eval()
+        self.dis_net.train()
+        self.gen_net.train()
         self.flow = self.flow.to("cpu")
 
 

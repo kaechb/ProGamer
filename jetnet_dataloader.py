@@ -118,24 +118,16 @@ class JetNetDataloader(pl.LightningDataModule):
         self.data[:,:,-1] = ~(self.data[:,:,-1].bool())
         self.scalers=[]
         self.scaler=StandardScaler()
-        self.scaler_pt=PowerScaler()
-        temp=self.data[:,:,:-2].reshape(-1,2)
-        temp[masks.reshape(-1)==0]=self.scaler.fit_transform(temp[masks.reshape(-1)==0])
-        self.data[:,:,:-2]=temp.reshape(-1,self.n_part,2)
-        temp=self.data[:,:,-2].reshape(-1,1)
-        temp[masks.reshape(-1)==0]=self.scaler_pt.fit_transform(temp[masks.reshape(-1)==0])
-        self.data[:,:,-2]=temp.reshape(-1,self.n_part)
+        temp=self.data[:,:,:-1].reshape(-1,self.n_dim)
+        temp[masks.reshape(-1)==0]=self.scaler.fit_transform(temp[masks.reshape(-1)==0,:])
+        self.data[:,:,:-1]=temp.reshape(-1,self.n_part,self.n_dim)
         self.test_set = self.data[-len(test_set):].float()
         self.data = self.data[:-len(test_set)].float()
 
+
+
     def scale(self,data,mask):
-        temp=data[:,:,:-1].reshape(-1,2)
-        temp[mask.reshape(-1)==0,:]=self.scaler.inverse_transform(temp[mask.reshape(-1)==0,:])
-        data[:,:,:-1]=temp.reshape(-1,self.n_part,2)
-        temp=data[:,:,-1].reshape(-1,1)
-        temp[mask.reshape(-1)==0]=self.scaler_pt.inverse_transform(temp[mask.reshape(-1)==0])
-        data[:,:,-1]=temp.reshape(-1,self.n_part)
-        return data.float()
+        return self.scaler.inverse_transform(data)
 
         
     def train_dataloader(self):

@@ -5,41 +5,52 @@ metric:
   goal: minimize
 parameters:
   beta1:
-    values: [0]
+    values: [0,0.9]
+  batch_size:
+    values: [256,1024,4096]
   beta2:
     values: [.5,.1,.9]
   lr_g:
-    values: [0.0001,0.0005]
+    values: [0.0001]
   num_layers:
-    values: [4,5,6]
+    values: [4,6,8]
   hidden:
-    values: [512,1024]
+    values: [256,1024]
   hidden_gen:
-    values: [512,256]
+    values: [64,256]
   l_dim:
-    values: [5,10,20]
+    values: [5,10,20,30]
   sched:
     distribution: categorical
-    values: [None,"cosine"]#
+    values: [None,"cosine","linear"]
+  gan:
+    distribution: categorical
+    values: ["ls","ns"]
   dropout:
     values: [0.4,.5]
   heads:
     values: [4,6,8]
   eval:
+    values: [False]
+  proj:
     values: [True,False]
-  activation:
-    values: ["gelu"]
+  proj_gen:
+    values: [True,False]
   num_layers_gen:
-    values: [2,4,6]
+    values: [6,8,12]
   l_dim_gen:
-    values: [5,10,20]
+    values: [5,15,10]
   dropout_gen:
-    values: [0.2,0.4,0.5]
+    values: [0.4,0.5]
   heads_gen:
-    values: [16,8,12]
-  activation_gen:
-    values: ["gelu"]
-  ratio:
-    values: [0.5,1,1.5]
-  res:
+    values: [3,5,7]
+  swa:
     values: [True,False]
+  swagen:
+    values: [True,False]
+  spectral:
+    values: [True,False]
+  random:
+    values: [True,False]
+  ratio:
+    values: [0.75,1,1.25]
