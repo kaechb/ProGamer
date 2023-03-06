@@ -123,7 +123,7 @@ class ProGamer(pl.LightningModule):
 
         if not model_dict["average"]:
             print("Starting historical weight averaging for discriminator")
-            model_dict["average"] = self.get_model_weights(model_dict["model"]).detach()
+            model_dict["average"] = self.get_model_weights(model_dict["model"])
             model_dict["step"] += 1
             return torch.tensor([0]).float().cuda()
         else:
@@ -174,18 +174,16 @@ class ProGamer(pl.LightningModule):
         return mean_field
     def train_gen(self,batch,mask,opt_g,mean_field=None):
         # opt_g.zero_grad()
-
         opt_g.zero_grad()
         self.gen_net.zero_grad()
         fake = self.sampleandscale(batch, mask, scale=False)
-        pred = self.dis_net(fake, mask=mask, )
+
         target = torch.ones_like(pred)
         if mean_field is not None:
             pred,mean_field_gen = self.dis_net(fake, mask=mask,mean_field=True )
             mean_field = torch.clamp(self.loss(mean_field_gen,mean_field.detach()).mean(),min=0,max=4)
             mean_field.backward(retain_graph=True)
             g_loss=-pred.mean()
-
             self.manual_backward(mean_field,retain_graph=True)
             if True:
                 historical_gen = self.historical_loss(self.gen_net_dict)
@@ -195,6 +193,7 @@ class ProGamer(pl.LightningModule):
             self.log("Training/mean_field", mean_field, logger=True,prog_bar=False,on_step=True)
 
         else:
+            pred = self.dis_net(fake, mask=mask, )
             g_loss=-pred.mean()
             #g_loss = self.loss(pred, target).mean()
         self.manual_backward(g_loss)
@@ -259,7 +258,7 @@ class ProGamer(pl.LightningModule):
         w1m_ = w1m(fake_scaled, true_scaled)[0]
         if w1m_<0.002:
             self.mean_field_loss=False
-        if w1m_<0.0009 and self.n_current<self.n_part and self.global_step>0:
+        if  w1m_<0.003 and self.n_current<self.n_part :#
             self.n_current+=5
             self.fadein=0
             self.data_module.n_part=self.n_current

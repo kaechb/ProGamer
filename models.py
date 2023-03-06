@@ -25,6 +25,7 @@ class WeightNormalizedLinear(nn.Module):
             self.scale = Parameter(torch.Tensor(out_features).fill_(init_scale))
         else:
             self.register_parameter('scale', None)
+
         self.reset_parameters(init_factor)
 
     def reset_parameters(self, factor):
@@ -54,12 +55,13 @@ class WeightNormalizedLinear(nn.Module):
 class BlockGen(nn.Module):
     def __init__(self,embed_dim,num_heads,):
         super().__init__()
-        self.fc0 = WeightNormalizedLinear(embed_dim, embed_dim)
+        #self.fc0 = WeightNormalizedLinear(embed_dim, embed_dim)
         self.fc1 = WeightNormalizedLinear(embed_dim, embed_dim)
-        self.fc2 = WeightNormalizedLinear(embed_dim, embed_dim)
+        #self.fc2 = WeightNormalizedLinear(embed_dim, embed_dim)
         self.fc1_cls = WeightNormalizedLinear(embed_dim, embed_dim)
         self.fc2_cls = WeightNormalizedLinear(embed_dim, embed_dim)
-        self.attn = weight_norm(nn.MultiheadAttention(embed_dim, num_heads, batch_first=True),"in_proj_weight")
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)#,"in_proj_weight")
+
         self.act = nn.LeakyReLU()
         self.ln=nn.LayerNorm(embed_dim)
 
@@ -83,7 +85,7 @@ class Gen(nn.Module):
         l_dim_gen = hidden_gen
         self.embbed = WeightNormalizedLinear(n_dim, l_dim_gen)
         self.encoder = nn.ModuleList([BlockGen(embed_dim=l_dim_gen, num_heads=heads_gen) for i in range(num_layers_gen)])
-        self.out = nn.Linear(l_dim_gen, n_dim)
+        self.out = WeightNormalizedLinear(l_dim_gen, n_dim)
         self.cls_token = nn.Parameter(torch.ones(1, 1, l_dim_gen), requires_grad=True)
         self.act = nn.LeakyReLU()
 
@@ -115,8 +117,8 @@ class BlockCls(nn.Module):
         self.fc2_cls = WeightNormalizedLinear(hidden, embed_dim)
         self.attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True, dropout=0)
         self.act = nn.LeakyReLU()
-        self.bn = nn.BatchNorm1d(embed_dim)
-        self.hidden = hidden
+        #self.bn = nn.BatchNorm1d(embed_dim)
+
 
     def forward(self, x, x_cls, src_key_padding_mask=None):
         res = x_cls.clone()
@@ -133,13 +135,13 @@ class Disc(nn.Module):
     def __init__(self, n_dim, l_dim, hidden, num_layers, heads, **kwargs):
         super().__init__()
         l_dim = hidden
-        self.embbed = nn.Linear(n_dim, l_dim)
+        self.embbed = WeightNormalizedLinear(n_dim, l_dim)
         self.encoder = nn.ModuleList([BlockCls(embed_dim=l_dim, num_heads=heads, hidden=hidden) for i in range(num_layers)])
         self.out = WeightNormalizedLinear(l_dim, 1)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, l_dim), requires_grad=True)
         self.act = nn.LeakyReLU()
         self.fc1 = WeightNormalizedLinear(l_dim, hidden)
-        self.fc2 = WeightNormalizedLinear(hidden, l_dim)
+        # self.fc2 = WeightNormalizedLinear(hidden, l_dim)
         self.apply(self._init_weights)
 
     def forward(self, x, mask=None,mean_field=False):
