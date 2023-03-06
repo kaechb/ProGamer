@@ -23,7 +23,6 @@ from torch.nn import TransformerEncoderLayer
 from torch.nn import functional as FF
 from torch.nn.functional import leaky_relu, sigmoid
 from torch.optim.swa_utils import AveragedModel
-
 from helpers import CosineWarmupScheduler, Scheduler
 from pointflow import PF
 from preprocess import center_jets_tensor
@@ -42,7 +41,7 @@ MASS=False
 class ProGamer(pl.LightningModule):
 
 
-    def __init__(self, config, num_batches,path="/",**kwargs):
+    def __init__(self, config, path="/",**kwargs):
         """This initializes the model and its hyperparameters"""
         super().__init__()
         self.opt = config["opt"]
@@ -52,10 +51,11 @@ class ProGamer(pl.LightningModule):
         self.n_dim = config["n_dim"]
         self.n_part = config["n_part"]
         self.n_current = config["n_start"]
-        self.momentum=config["momentum_gen"]
+        # self.momentum=config["momentum_gen"]
         self.lr_g=config["lr_g"]
         self.lr_d=config["lr_d"]
-        self.num_batches = int(num_batches)
+        self.n_start=config["n_start"]
+
         self.gen_net = Gen(**config).cuda()
         self.dis_net = Disc(**config).cuda()
         self.gan = kwargs["gan"]
@@ -66,10 +66,19 @@ class ProGamer(pl.LightningModule):
         self.save_hyperparameters()
         self.d_loss_mean=0
         self.g_loss_mean=0
+        self.timesteps=0
+        self.sum_parameter_gen=[]
+        self.sum_parameter_dis=[]
+
+        self.fadein=np.inf
+        self.relu=torch.nn.ReLU()
+        self.dis_net_dict={"average":False,"model":self.dis_net,"step":0}
+        self.gen_net_dict={"average":False,"model":self.gen_net,"step":0}
+        self.mean_field_loss=True
         # if config["swa"]:
-        #     self.dis_net= AveragedModel(self.dis_net)
-        # if config["swagen"]:
-        #     self.gen_net= AveragedModel(self.gen_net)
+        # self.dis_net= AveragedModel(self.dis_net)
+        # # if config["swagen"]:
+        # self.gen_net= AveragedModel(self.gen_net)
 
 
     def on_validation_epoch_start(self, *args, **kwargs):
@@ -89,7 +98,7 @@ class ProGamer(pl.LightningModule):
         self.data_module = data_module
 
     def sampleandscale(self, batch, mask=None, scale=False):
-        assert mask.dtype==torch.bool
+
        # with torch.no_grad():
         z=torch.normal(torch.zeros_like(batch),torch.ones_like(batch))
         fake=self.gen_net(z,mask=mask)
@@ -103,11 +112,32 @@ class ProGamer(pl.LightningModule):
         else:
             return fake
 
+    def get_model_weights(self,model):
+        average = {}
+        params = dict(model.named_parameters())
+        for p in params:
+            average[p] = params[p].detach()
+        return average
 
+    def historical_loss(self,model_dict):
+
+        if not model_dict["average"]:
+            print("Starting historical weight averaging for discriminator")
+            model_dict["average"] = self.get_model_weights(model_dict["model"]).detach()
+            model_dict["step"] += 1
+            return torch.tensor([0]).float().cuda()
+        else:
+            params = dict(model_dict["model"].named_parameters())
+            err=torch.tensor([0]).float().cuda()
+            for p in params:
+                err += self.loss(params[p], model_dict["average"][p])
+                model_dict["average"][p] = (model_dict["average"][p] * (model_dict["step"]-1) + params[p].detach())/model_dict["step"]
+            model_dict["step"] += 1
+            return err.mean()
     def configure_optimizers(self):
         if self.opt == "Adam":
             opt_g = torch.optim.Adam(self.gen_net.parameters(), lr=self.lr_g, betas=(0, 0.999), eps=1e-14)
-            opt_d = torch.optim.Adam(self.dis_net.parameters(), lr=2*self.lr_d,betas=(0, 0.999), eps=1e-14)#
+            opt_d = torch.optim.Adam(self.dis_net.parameters(), lr=self.lr_d,betas=(0, 0.999), eps=1e-14)#
         else:
             raise
         return [opt_d, opt_g]
@@ -118,18 +148,28 @@ class ProGamer(pl.LightningModule):
             fake = self.sampleandscale(batch, mask, scale=False)
         opt_d.zero_grad()
         self.dis_net.zero_grad()
-        if True:
+        if self.mean_field_loss:
             pred_real,mean_field = self.dis_net(batch, mask=None,mean_field=True)#mass=m_true
         else:
+            mean_field=None
             pred_real = self.dis_net(batch, mask=mask,)#mass=m_true
         pred_fake = self.dis_net(fake.detach(), mask=mask,)
-
         target_real = torch.ones_like(pred_real)
         target_fake = torch.zeros_like(pred_fake)
-        d_loss = self.loss(pred_fake, target_fake).mean()+self.loss(pred_real, target_real).mean()
+        d_loss = self.relu(1.0 - pred_real).mean() +self.relu(1.0 + pred_fake).mean()
+        if True:
+            historical_dis = self.historical_loss(self.dis_net_dict)
+            if self.dis_net_dict["step"]>1:
+                self.manual_backward(historical_dis)
+                self.log("Training/dis_historical", historical_dis, logger=True,prog_bar=False,on_step=True)
         self.manual_backward(d_loss)
-        opt_d.step()
+
+
         self.log("Training/d_loss", d_loss, logger=True,prog_bar=False,on_step=True)
+
+
+        opt_d.step()
+        # self.log("Training/d_loss", d_loss, logger=True,prog_bar=False,on_step=True)
 
         return mean_field
     def train_gen(self,batch,mask,opt_g,mean_field=None):
@@ -142,12 +182,22 @@ class ProGamer(pl.LightningModule):
         target = torch.ones_like(pred)
         if mean_field is not None:
             pred,mean_field_gen = self.dis_net(fake, mask=mask,mean_field=True )
-            g_loss = self.loss(mean_field_gen,mean_field.detach()).mean()+self.loss(pred, target).mean()
+            mean_field = torch.clamp(self.loss(mean_field_gen,mean_field.detach()).mean(),min=0,max=4)
+            mean_field.backward(retain_graph=True)
+            g_loss=-pred.mean()
+
+            self.manual_backward(mean_field,retain_graph=True)
+            if True:
+                historical_gen = self.historical_loss(self.gen_net_dict)
+                if self.gen_net_dict["step"]>1:
+                    self.manual_backward(historical_gen)
+                self.log("Training/gen_historical", historical_gen, logger=True,prog_bar=False,on_step=True)
+            self.log("Training/mean_field", mean_field, logger=True,prog_bar=False,on_step=True)
+
         else:
-            g_loss = self.loss(pred, target).mean()
-
-
-        self.manual_backward(g_loss,retain_graph=True)
+            g_loss=-pred.mean()
+            #g_loss = self.loss(pred, target).mean()
+        self.manual_backward(g_loss)
         self.g_loss_mean+=g_loss.item()/100
         opt_g.step()
         self.log("Training/g_loss", g_loss, logger=True, prog_bar=False,on_step=True)
@@ -157,12 +207,17 @@ class ProGamer(pl.LightningModule):
     def training_step(self, batch):
         if len(batch)==1:
             return None
-        mask = batch[:, :,self.n_dim].bool()
+        mask= batch[:, :self.n_current,self.n_dim].float()
 
-        batch = batch[:, :,:self.n_dim]
+        if self.fadein<10000:
+            mask[mask!=0]= -torch.tensor(float('inf'))
+
+
+            mask[:,-5:]-=torch.exp(torch.tensor(-self.fadein).cuda())*10000
+            self.fadein+=1
+        batch = batch[:, :self.n_current,:self.n_dim]
         opt_d, opt_g = self.optimizers()
         ### GAN PART
-
         mean_field=self.train_disc(batch,mask,opt_d,mean_field=True)
         self.train_gen(batch,mask,opt_g,mean_field)
 
@@ -171,9 +226,17 @@ class ProGamer(pl.LightningModule):
         """This calculates some important metrics on the hold out set (checking for overtraining)"""
         #print("start val")
         # if self.config["smart_batching"]:
-        self.n_current=batch.shape[1]
+        # self.n_current=batch.shape[1]
+
+        if self.global_step==0:
+            self.n_current=self.n_start
+            self.data_module.n_part=self.n_current
+            self.log("n_current",self.n_current)
+            # self.data_module.setup("validate")
+            # batch=self.data_module.val_dataloader().dataset
         batch = batch.to("cpu")
-        mask = batch[:,:,-1].bool()
+        mask = batch[:,:self.n_current,-1].bool()
+        assert not mask[:,0].all()
         batch = batch[:, :self.n_current,:self.n_dim].cpu()
         with torch.no_grad():
             gen, fake_scaled, true_scaled = self.sampleandscale(batch,mask, scale=True)
@@ -187,13 +250,23 @@ class ProGamer(pl.LightningModule):
         for i in range(self.n_current):
             fake_scaled[fake_scaled[:, i,2] < 0, i,2] = true_scaled[:,:,2].min()
             #z_scaled[z_scaled[:, i,2] < 0, i,2] = 0
-        fake_scaled = center_jets_tensor(fake_scaled[...,[2,0,1]])[...,[1,2,0]]
+        fake_scaled[:,:,:3] = center_jets_tensor(fake_scaled[:,:,:3][...,[2,0,1]])[...,[1,2,0]]
         fake_scaled[mask]=0
         true_scaled[mask]=0
         self.calc_log_metrics(fake_scaled,true_scaled,scores_real,scores_fake)
 
     def calc_log_metrics(self, fake_scaled,true_scaled,scores_real,scores_fake):
         w1m_ = w1m(fake_scaled, true_scaled)[0]
+        if w1m_<0.002:
+            self.mean_field_loss=False
+        if w1m_<0.0009 and self.n_current<self.n_part and self.global_step>0:
+            self.n_current+=5
+            self.fadein=0
+            self.data_module.n_part=self.n_current
+            self.w1m_best=100
+            self.mean_field_loss=True
+            print("number particles increased to {}".format(self.n_current))
+            self.log("n_current",self.n_current)
         temp = {"w1m": w1m_,}
         try:
             cov, mmd = cov_mmd( true_scaled,fake_scaled, use_tqdm=False)
@@ -205,8 +278,11 @@ class ProGamer(pl.LightningModule):
         self.log("w1m",w1m_)
         if w1m_<self.w1m_best or self.global_step==0:
             self.w1m_best=w1m_
+            if self.n_part==30:
+                fpnd_best=fpnd(fake_scaled,jet_type="t",use_tqdm=False)
+                self.log("fpnd",fpnd_best)
             self.log("best_w1m",w1m_)
-            self.plot = plotting_point_cloud(model=self,gen=fake_scaled,true=true_scaled,n_dim=self.n_dim, n_part=self.n_part, step=self.global_step,logger=self.logger, n=self.n_current,p=self.parton)
+            self.plot = plotting_point_cloud(model=self,gen=fake_scaled,true=true_scaled,n_dim=self.n_dim, n_part=self.n_current, step=self.global_step,logger=self.logger, n=self.n_current,p=self.parton)
             try:
                 self.plot.plot_scores(scores_real.reshape(-1).numpy(),scores_fake.reshape(-1).numpy(),False,self.global_step)
 

@@ -57,12 +57,12 @@ def train(config, load_ckpt=False):
         ),
     ]
 
-    # if len(logger.experiment.config.keys()) > 0:
-    #     config.update(**logger.experiment.config)
-    #     config["l_dim"] = lcm(config["l_dim"], config["heads"])
-    #     config["l_dim_gen"] = lcm(config["l_dim_gen"], 1)
-    #     config["lr_d"] = config["lr_g"]
-    #     print(config["lr_d"], config["lr_g"])
+    if len(logger.experiment.config.keys()) > 0:
+        config.update(**logger.experiment.config)
+        # config["l_dim"] = lcm(config["l_dim"], config["heads"])
+        # config["l_dim_gen"] = lcm(config["l_dim_gen"], 1)
+        # config["lr_d"] = config["lr_g"]
+        # print(config["lr_d"], config["lr_g"])
     # if load_ckpt:
     #     model = ProGamer.load_from_checkpoint(
     #         load_ckpt, strict=False, num_prog=config["num_prog"]
@@ -70,11 +70,11 @@ def train(config, load_ckpt=False):
     print(logger.experiment.dir)
     # if not config["load_ckpt_trafo"]:
     data_module = JetNetDataloader(config)
-    data_module.setup("training")
+    #data_module.setup("training")
     print("config:", config)
     if not load_ckpt:
         config["spectral"] = False
-        model = ProGamer(num_batches=data_module.num_batches, config=config, **config)
+        model = ProGamer( config=config, **config)
     else:
         model.n_part = config["n_part"]
         model.n_current = config["n_start"]
@@ -99,8 +99,8 @@ def train(config, load_ckpt=False):
         check_val_every_n_epoch=None,
         num_sanity_val_steps=1,  # gradient_clip_val=.02,
         enable_progress_bar=False,
-        # track_grad_norm=0,
-
+        track_grad_norm=1,
+        reload_dataloaders_every_n_epochs=1,
         #
         # fast_dev_run=False,
         # track_grad_norm=1,
@@ -113,7 +113,7 @@ def train(config, load_ckpt=False):
     print("This is run: ", logger.experiment.name)
     trainer.fit(
         model,
-        datamodule=data_module,
+        datamodule=data_module
     )  # ,ckpt_path=ckpt,ckpt_path=config["load_ckpt_trafo"],
 
 
@@ -140,8 +140,8 @@ if __name__ == "__main__":
         "lr_g": 0.0001,
         "max_epochs": 1200,
         "n_dim": 3,
-        "n_part": 30,
-        "n_start": 30,
+        "n_part": 150,
+        "n_start": 5,
         "name": "ProGamer",
         "num_layers_gen": 6,
         "num_layers": 3,
@@ -150,7 +150,7 @@ if __name__ == "__main__":
         # "spectral": True,
         "swa": False,
         "swagen": False,
-        "momentum_gen": 0.9,
+        # "momentum_gen": 0.9,
 
     }
     # "load_ckpt_trafo":True,#'/home/kaechben/ProGamer/start_fpnd_022_w1m_08.ckpt',

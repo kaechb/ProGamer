@@ -60,38 +60,7 @@ class StandardScaler:
         self.mean = self.mean.to(dev)
         return self
 
-class PowerScaler:
-    def __init__(self):
-        """Standard Scaler.
-        The class can be used to normalize PyTorch Tensors using native
-        functions. The module does not expect the tensors to be of any specific shape;
-         as long as the features are the last dimension in the tensor, the module
-        will work fine.
-        :param mean: The mean of the features. The property will be set after a call to fit.
-        :param std: The standard deviation of the features. The property will be set after a call to fit.
-        :param epsilon: Used to avoid a Division-By-Zero exception.
-        """
-        self.scaler=PowerTransformer("box-cox")
-    def transform(self,values):
-        dev=values.device
-        values=values.detach().cpu().numpy()
-        values=torch.tensor(self.scaler.transform(values)).float().to(dev)
-        return values
-    def inverse_transform(self,values):
-        dev=values.device
 
-        values=values.detach().cpu().numpy()
-
-        values=np.clip(values,-1/abs(self.scaler.lambdas_)+1e-10,1/abs(self.scaler.lambdas_)-1e-10)
-        values=torch.tensor(self.scaler.inverse_transform(values)).float().to(dev)
-        return values
-    def fit(self,values):
-        self.scaler.fit(values.detach().cpu().numpy())
-
-        print("lambdas:",self.scaler.lambdas_)
-    def fit_transform(self,values):
-        self.fit(values)
-        return self.transform(values)
 
 from torch.utils.data import Sampler, Dataset
 from collections import OrderedDict
@@ -249,10 +218,12 @@ class JetNetDataloader(pl.LightningDataModule):
         self.n_dim = config["n_dim"]
         self.n_part = config["n_part"]
         self.batch_size = config["batch_size"]
+        self.n_start = config["n_start"]
 
-    def setup(self, stage , ):
+    def setup(self, stage ,n=None ):
         # This just sets up the dataloader, nothing particularly important. it reads in a csv, calculates mass and reads out the number particles per jet
         # And adds it to the dataset as variable. The only important thing is that we add noise to zero padded jets
+
         if self.n_part==30:
             data=jetnet.datasets.JetNet.getData(jet_type=self.config["parton"],split="train",num_particles=self.n_part,data_dir="/beegfs/desy/user/kaechben/datasets")[0]
             test_set=jetnet.datasets.JetNet.getData(jet_type=self.config["parton"],split="valid",num_particles=self.n_part,data_dir="/beegfs/desy/user/kaechben/datasets")[0]
@@ -260,18 +231,20 @@ class JetNetDataloader(pl.LightningDataModule):
             data= np.load("/beegfs/desy/user/kaechben/datasets/{}_{}_train.npy".format(self.config["parton"],self.config["n_part"]))
             test_set= np.load("/beegfs/desy/user/kaechben/datasets/{}_{}_valid.npy".format(self.config["parton"],self.config["n_part"]))
             #test_set,_=jetnet.datasets.JetNet.getData(jet_type=self.config["parton"],split="valid",num_particles=self.n_part,data_dir="/beegfs/desy/user/kaechben/datasets")
-        data=torch.tensor(data)
-        self.num_batches=len(data)/self.config["batch_size"]
+        data=torch.tensor(data)[:,:,:]
         test_set=torch.tensor(test_set)
         self.data=torch.cat((data,test_set),dim=0)
-        masks=self.data[:,:,-1]
+        if self.n_part>30:
+            self.data[:,:,-1]=~self.data[:,:,-1].bool()
         self.n = self.data[:,:,-1].sum(axis=1)
+        masks=~(self.data[:,:,-1]).bool()
+
         self.scalers=[]
         self.scaler=StandardScaler()
         temp=self.data[:,:,:-1].reshape(-1,self.n_dim)
         temp[masks.reshape(-1)==0]=self.scaler.fit_transform(temp[masks.reshape(-1)==0,:])
         self.data[:,:,:-1]=temp.reshape(-1,self.n_part,self.n_dim)
-
+        self.data[:,:,-1]=masks
         self.test_set = self.data[-len(test_set):].float()
         self.data = self.data[:-len(test_set)].float()
 
@@ -285,25 +258,21 @@ class JetNetDataloader(pl.LightningDataModule):
         return self.scaler.inverse_transform(data)
 
     def train_dataloader(self):
-        if self.n_part>30:
-            dataset = Dataset_Bucketing(self.data.numpy(), self.config["batch_size"])
+        if self.n_part>0:
+            dataset = Dataset_Bucketing(self.data[:,:self.n_part].numpy(), self.config["batch_size"])
             dataloader = DataLoader(dataset, batch_size=None)
             return dataloader
             # bucket_dataset = BucketDataset(self.data, None)
             # bucket_batch_sampler = BucketBatchSampler(bucket_dataset, self.config["batch_size"]) # <-- does not store X
             # return DataLoader(bucket_dataset,batch_sampler=bucket_batch_sampler, shuffle=False, num_workers=40, drop_last=False)#DataLoader(self.data, collate_fn=custom_collate,batch_size=self.config["batch_size"],num_workers=40)
         else:
-            self.data[:,:,-1]=~self.data[:,:,-1].astype(bool)
-            return DataLoader(self.data, batch_size=self.batch_size, shuffle=False, num_workers=40, drop_last=False)
+
+            return DataLoader(self.data[:,:self.n_part], batch_size=self.batch_size, shuffle=False, num_workers=40, drop_last=False)
 
     def val_dataloader(self):
         return DataLoader(self.test_set[:,:self.n_part], batch_size=len(self.test_set), drop_last=True,num_workers=40)
 
-    def custom_collate(data): #(2)
-        masks=~(data[:,:,-1].bool())
-        sel=torch.ones(len(data),data.sum(1).max())
-        inputs = data[sel]
-        return inputs
+
 
 if __name__=="__main__":
     config = {

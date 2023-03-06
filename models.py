@@ -1,24 +1,74 @@
 import torch
 import torch.nn as nn
 import torch.nn.utils.weight_norm as weight_norm
+from torch.nn import Parameter
+import math
+import torch.nn.functional as F
+import torch
+import torch.nn as nn
+import torch.nn.utils.weight_norm as weight_norm
+from torch.nn import Parameter
+import math
+import torch.nn.functional as F
+class WeightNormalizedLinear(nn.Module):
 
+    def __init__(self, in_features, out_features, scale=False, bias=False, init_factor=1, init_scale=1):
+        super(WeightNormalizedLinear, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = Parameter(torch.Tensor(out_features, in_features))
+        if bias:
+            self.bias = Parameter(torch.zeros(out_features))
+        else:
+            self.register_parameter('bias', None)
+        if scale:
+            self.scale = Parameter(torch.Tensor(out_features).fill_(init_scale))
+        else:
+            self.register_parameter('scale', None)
+        self.reset_parameters(init_factor)
+
+    def reset_parameters(self, factor):
+        stdv = 1. * factor / math.sqrt(self.weight.size(1))
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.uniform_(-stdv, stdv)
+
+    def weight_norm(self):
+        return self.weight.pow(2).sum(1).sqrt().add(1e-8)
+
+    def norm_scale_bias(self, input):
+        output = input.div(self.weight_norm().unsqueeze(0))
+        if self.scale is not None:
+            output = output.mul(self.scale.unsqueeze(0))
+        if self.bias is not None:
+            output = output.add(self.bias.unsqueeze(0))
+        return output
+
+    def forward(self, input):
+        return self.norm_scale_bias(F.linear(input, self.weight))
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' \
+            + str(self.in_features) + ' -> ' \
+            + str(self.out_features) + ')'
 class BlockGen(nn.Module):
     def __init__(self,embed_dim,num_heads,):
         super().__init__()
-        self.fc0 = weight_norm(nn.Linear(embed_dim, embed_dim))
-        self.fc1 = weight_norm(nn.Linear(embed_dim, embed_dim))
-        self.fc2 = weight_norm(nn.Linear(embed_dim, embed_dim))
-        self.fc1_cls = weight_norm(nn.Linear(embed_dim, embed_dim))
-        self.fc2_cls = weight_norm(nn.Linear(embed_dim, embed_dim))
+        self.fc0 = WeightNormalizedLinear(embed_dim, embed_dim)
+        self.fc1 = WeightNormalizedLinear(embed_dim, embed_dim)
+        self.fc2 = WeightNormalizedLinear(embed_dim, embed_dim)
+        self.fc1_cls = WeightNormalizedLinear(embed_dim, embed_dim)
+        self.fc2_cls = WeightNormalizedLinear(embed_dim, embed_dim)
         self.attn = weight_norm(nn.MultiheadAttention(embed_dim, num_heads, batch_first=True),"in_proj_weight")
         self.act = nn.LeakyReLU()
+        self.ln=nn.LayerNorm(embed_dim)
 
     def forward(self,x,x_cls=None,z=None,mask=None):
         # if mask is None:
         #     mask = torch.zeros(x.shape[0],x.shape[1],device=x.device).bool()
         res = x.clone()
         x_cls = self.attn(x_cls, x, x, key_padding_mask=mask)[0]
-        x_cls = self.act(self.fc1_cls((x_cls-x_cls.mean(0))/(x_cls.std(dim=0))))
+        x_cls = self.act(self.fc1_cls(self.ln(x_cls)))#(x_cls-x_cls.mean(0))/(x_cls.std(dim=0))
         x_cls = self.act(self.fc2_cls(x_cls) )
         # x = self.pre_attn_norm(x)
         x =x_cls.expand(-1, x.shape[1], -1).clone()+res
@@ -31,7 +81,7 @@ class Gen(nn.Module):
     def __init__(self, n_dim, l_dim_gen, hidden_gen, num_layers_gen, heads_gen, **kwargs):
         super().__init__()
         l_dim_gen = hidden_gen
-        self.embbed = nn.Linear(n_dim, l_dim_gen)
+        self.embbed = WeightNormalizedLinear(n_dim, l_dim_gen)
         self.encoder = nn.ModuleList([BlockGen(embed_dim=l_dim_gen, num_heads=heads_gen) for i in range(num_layers_gen)])
         self.out = nn.Linear(l_dim_gen, n_dim)
         self.cls_token = nn.Parameter(torch.ones(1, 1, l_dim_gen), requires_grad=True)
@@ -60,10 +110,10 @@ class Gen(nn.Module):
 class BlockCls(nn.Module):
     def __init__(self, embed_dim, num_heads, hidden):
         super().__init__()
-        self.fc0 = (nn.Linear(embed_dim, hidden))
-        self.fc1_cls = (nn.Linear(embed_dim, hidden))
-        self.fc2_cls = nn.Linear(hidden, embed_dim)
-        self.attn = weight_norm(nn.MultiheadAttention(embed_dim, num_heads, batch_first=True, dropout=0), "in_proj_weight")
+        self.fc0 = (WeightNormalizedLinear(embed_dim, hidden))
+        self.fc1_cls = (WeightNormalizedLinear(embed_dim, hidden))
+        self.fc2_cls = WeightNormalizedLinear(hidden, embed_dim)
+        self.attn = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True, dropout=0)
         self.act = nn.LeakyReLU()
         self.bn = nn.BatchNorm1d(embed_dim)
         self.hidden = hidden
@@ -85,11 +135,11 @@ class Disc(nn.Module):
         l_dim = hidden
         self.embbed = nn.Linear(n_dim, l_dim)
         self.encoder = nn.ModuleList([BlockCls(embed_dim=l_dim, num_heads=heads, hidden=hidden) for i in range(num_layers)])
-        self.out = weight_norm(nn.Linear(l_dim, 1))
+        self.out = WeightNormalizedLinear(l_dim, 1)
         self.cls_token = nn.Parameter(torch.zeros(1, 1, l_dim), requires_grad=True)
         self.act = nn.LeakyReLU()
-        self.fc1 = weight_norm(nn.Linear(l_dim, hidden))
-        self.fc2 = weight_norm(nn.Linear(hidden, l_dim))
+        self.fc1 = WeightNormalizedLinear(l_dim, hidden)
+        self.fc2 = WeightNormalizedLinear(hidden, l_dim)
         self.apply(self._init_weights)
 
     def forward(self, x, mask=None,mean_field=False):
@@ -112,6 +162,8 @@ class Disc(nn.Module):
             nn.init.kaiming_normal_(m.in_proj_weight)
         torch.nn.init.kaiming_normal_(self.embbed.weight,)
         torch.nn.init.kaiming_normal_(self.out.weight,)
+
+
 
 
 if __name__ == "__main__":
