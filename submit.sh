@@ -10,7 +10,7 @@
 #SBATCH --mail-type=END                           # Type of email notification- BEGIN,END,FAIL,ALL
 #SBATCH --mail-user=max.muster@desy.de            # Email to which notifications will be sent. It defaults to <userid@mail.desy.de> if none is set.
 export WANDB_API_KEY=f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
-export WANDB_PROJECT="ProGamer150"
+export WANDB_PROJECT="linear"
 export WANDB_ENTITY="kaechben"
 
 unset LD_PRELOAD
@@ -37,4 +37,4 @@ cp /home/$USER/$path/*.yaml /beegfs/desy/user/kaechben/code/${POSTFIX}
 # nodes_array=($nodes)
 # head_node=${nodes_array[0]}
 # head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
-python -u /home/$USER/$path/test_my_sanity.py 
+python -u /home/$USER/$path/main.py

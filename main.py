@@ -44,7 +44,7 @@ def train(config, load_ckpt=False):
     logger = WandbLogger(
         save_dir="/beegfs/desy/user/kaechben/pf_" + config["parton"],
         sync_tensorboard=False,
-        project="ProGamer150",
+        project="linear",
     )  #
     # wandb.run.log_code(".")
     callbacks = [
@@ -130,27 +130,27 @@ if __name__ == "__main__":
         "dropout_gen": 0,
         "dropout": 0,
         "gan": "ls",
-        "heads": 8,
-        "heads_gen": 8,
+        "heads": 4,
+        "heads_gen": 4,
         "hidden_gen": 128,
         "hidden": 128,
-        "l_dim_gen": 128,
-        "l_dim": 128,
+        "l_dim_gen": 10,
+        "l_dim": 10,
         "lr_d": 0.0001,
         "lr_g": 0.0001,
         "max_epochs": 1200,
         "n_dim": 3,
-        "n_part": 150,
-        "n_start": 5,
+        "n_part":30,
+        "n_start": 30,
         "name": "ProGamer",
         "num_layers_gen": 6,
         "num_layers": 3,
         "opt": "Adam",
         "parton": parton,
-        # "spectral": True,
+        "cond_dim": 6,
         "swa": False,
         "swagen": False,
-        # "momentum_gen": 0.9,
+        "epic":False
 
     }
     # "load_ckpt_trafo":True,#'/home/kaechben/ProGamer/start_fpnd_022_w1m_08.ckpt',
