@@ -46,7 +46,7 @@ def train(config, load_ckpt=False):
         sync_tensorboard=False,
         project="linear",
     )  #
-    # wandb.run.log_code(".")
+    logger.experiment.log_code(".")
     callbacks = [
         ModelCheckpoint(
             monitor="w1m",
@@ -130,12 +130,12 @@ if __name__ == "__main__":
         "dropout_gen": 0,
         "dropout": 0,
         "gan": "ls",
-        "heads": 4,
-        "heads_gen": 4,
+        "heads": 2,
+        "heads_gen": 8,
         "hidden_gen": 128,
         "hidden": 128,
-        "l_dim_gen": 10,
-        "l_dim": 10,
+        "l_dim_gen": 128,
+        "l_dim": 128,
         "lr_d": 0.0001,
         "lr_g": 0.0001,
         "max_epochs": 1200,
