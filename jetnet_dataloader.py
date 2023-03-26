@@ -211,9 +211,9 @@ class JetNetDataloader(pl.LightningDataModule):
     one thing to note is the custom standard scaler that works on tensors
    """
 
-    def __init__(self, config,fineTune=False):
+    def __init__(self, config,finetune=False):
         super().__init__()
-        self.fineTune=fineTune
+        self.finetune=finetune
         self.config = config
         self.n_dim = config["n_dim"]
         self.n_part = config["n_part"]
@@ -238,7 +238,6 @@ class JetNetDataloader(pl.LightningDataModule):
             self.data[:,:,-1]=~self.data[:,:,-1].bool()
         self.n = self.data[:,:,-1].sum(axis=1)
         masks=~(self.data[:,:,-1]).bool()
-
         self.scalers=[]
         self.scaler=StandardScaler()
         temp=self.data[:,:,:-1].reshape(-1,self.n_dim)
@@ -251,14 +250,14 @@ class JetNetDataloader(pl.LightningDataModule):
         # self.data_=[]
         # for i,m in zip(self.data,150-(self.data[:,:,-1].sum(1))):
         #     self.data_.append(i[:int(m),:].numpy())
-        # if not self.fineTune:
+        # if not self.finetune:
         #     self.data=np.array(self.data,dtype=object)
 
     def scale(self,data,mask):
         return self.scaler.inverse_transform(data)
 
     def train_dataloader(self):
-        if self.n_part>0:
+        if not self.finetune:
             dataset = Dataset_Bucketing(self.data[:,:self.n_part].numpy(), self.config["batch_size"])
             dataloader = DataLoader(dataset, batch_size=None)
             return dataloader

@@ -53,12 +53,13 @@ def train(config, load_ckpt=False):
             save_top_k=3,
             mode="min",
             filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",
-            every_n_epochs=10,
+            every_n_epochs=1,
         ),
     ]
 
     if len(logger.experiment.config.keys()) > 0:
         config.update(**logger.experiment.config)
+        config["l_dim_gen"]=config["l_dim"]
         # config["l_dim"] = lcm(config["l_dim"], config["heads"])
         # config["l_dim_gen"] = lcm(config["l_dim_gen"], 1)
         # config["lr_d"] = config["lr_g"]
@@ -69,23 +70,28 @@ def train(config, load_ckpt=False):
     #     )
     print(logger.experiment.dir)
     # if not config["load_ckpt_trafo"]:
-    data_module = JetNetDataloader(config)
+
+
     #data_module.setup("training")
     print("config:", config)
+    wandb.init( )
     if not load_ckpt:
-        config["spectral"] = False
         model = ProGamer( config=config, **config)
-    else:
-        model.n_part = config["n_part"]
-        model.n_current = config["n_start"]
+        model.fine_tune = False
 
-    # else:
-    #     print("model loaded")
-    #     ckpt=config["load_ckpt_trafo"]
-    #     model=ProGamer.load_from_checkpoint(config["load_ckpt_trafo"]).eval()
+    else:
+        print("model loaded")
+        model=ProGamer.load_from_checkpoint(load_ckpt)
+        model.parton=config["parton"]
+        model.ckpt=ckpt
+        model.mean_field=np.random.choice([True,False])
+        model.fine_tune=np.random.choice([True,False])
+        torch.nn.init.normal(model.dis_net.out.weight)
+        model.mean_field_loss=model.mean_field
+        logger.log_hyperparams({"mean_field":model.mean_field,"fine_tune":model.fine_tune,"parton":model.parton,"ckpt":model.ckpt})
 
     # this loads the data
-
+    data_module = JetNetDataloader(config,finetune=model.fine_tune)
     model.data_module = data_module
     # the sets up the model,  config are hparams we want to optimize
     trainer = pl.Trainer(
@@ -100,7 +106,7 @@ def train(config, load_ckpt=False):
         num_sanity_val_steps=1,  # gradient_clip_val=.02,
         enable_progress_bar=False,
         track_grad_norm=1,
-        reload_dataloaders_every_n_epochs=1,
+        #reload_dataloaders_every_n_epochs=1,
         #
         # fast_dev_run=False,
         # track_grad_norm=1,
@@ -130,31 +136,34 @@ if __name__ == "__main__":
         "dropout_gen": 0,
         "dropout": 0,
         "gan": "ls",
-        "heads": 2,
-        "heads_gen": 8,
+        "heads": 4,
+        "heads_gen": 16,
         "hidden_gen": 128,
         "hidden": 128,
-        "l_dim_gen": 128,
-        "l_dim": 128,
+        "l_dim_gen": 10,
+        "l_dim": 10,
         "lr_d": 0.0001,
         "lr_g": 0.0001,
         "max_epochs": 1200,
         "n_dim": 3,
-        "n_part":30,
-        "n_start": 30,
+        "n_part":150,
+        "n_start": 150,
         "name": "ProGamer",
         "num_layers_gen": 6,
-        "num_layers": 3,
+        "num_layers": 4,
         "opt": "Adam",
         "parton": parton,
         "cond_dim": 6,
         "swa": False,
         "swagen": False,
-        "epic":False
+        "epic":False,
+        "checkpoint":True,
+        "stop_mean":False
+
 
     }
     # "load_ckpt_trafo":True,#'/home/kaechben/ProGamer/start_fpnd_022_w1m_08.ckpt',
 
     config["parton"] = parton
-    ckpt = "/beegfs/desy/user/kaechben/pf_t/ProGamer/clhdrd17/checkpoints/epoch=3599-fpnd=0.249-w1m=0.0006--w1efp=0.000014.ckpt"
-    train(config, load_ckpt=False)  # load_ckpt=ckptroot=root,
+    ckpt = False# "/beegfs/desy/user/kaechben/pf_t/linear/p4iu0o0f/checkpoints/epoch=759-fpnd=0.000-w1m=0.0013--w1efp=0.000000.ckpt"
+    train(config, load_ckpt=ckpt)  # load_ckpt=ckptroot=root,

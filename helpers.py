@@ -231,3 +231,19 @@ class WeightNormalizedLinear(nn.Module):
         return self.__class__.__name__ + ' (' \
             + str(self.in_features) + ' -> ' \
             + str(self.out_features) + ')'
+
+def masked_layer_norm(x, mask, eps = 1e-5):
+    """
+    x of shape: [batch_size (N), num_objects (L), features(C)]
+    mask of shape: [batch_size (N), num_objects (L)]
+    """
+    mask = mask.float().unsqueeze(-1)  # (N,L,1)
+    mean = (torch.sum(x * mask, 1) / torch.sum(mask, 1))   # (N,C)
+    mean = mean.detach()
+    var_term = ((x - mean.unsqueeze(1).expand_as(x)) * mask)**2  # (N,L,C)
+    var = (torch.sum(var_term, 1) / torch.sum(mask, 1))  #(N,C)
+    var = var.detach()
+    mean_reshaped = mean.unsqueeze(1).expand_as(x)  # (N, L, C)
+    var_reshaped = var.unsqueeze(1).expand_as(x)    # (N, L, C)
+    ins_norm = (x - mean_reshaped) / torch.sqrt(var_reshaped + eps)   # (N, L, C)
+    return ins_norm
