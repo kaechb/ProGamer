@@ -5,13 +5,13 @@ import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 import torch
-from sklearn.model_selection import train_test_split
+#from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader
-from sklearn.preprocessing import QuantileTransformer,PowerTransformer
+#from sklearn.preprocessing import QuantileTransformer,PowerTransformer
 from helpers import *
-import jetnet
+# import jetnet
 import pytorch_lightning as pl
-from sklearn.model_selection import train_test_split
+#from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader,TensorDataset,Dataset,Sampler
 import numpy as np
 from random import shuffle
@@ -220,6 +220,7 @@ class JetNetDataloader(pl.LightningDataModule):
         self.batch_size = config["batch_size"]
         self.n_start = config["n_start"]
 
+
     def setup(self, stage ,n=None ):
         # This just sets up the dataloader, nothing particularly important. it reads in a csv, calculates mass and reads out the number particles per jet
         # And adds it to the dataset as variable. The only important thing is that we add noise to zero padded jets
@@ -244,6 +245,8 @@ class JetNetDataloader(pl.LightningDataModule):
         temp[masks.reshape(-1)==0]=self.scaler.fit_transform(temp[masks.reshape(-1)==0,:])
         self.data[:,:,:-1]=temp.reshape(-1,self.n_part,self.n_dim)
         self.data[:,:,-1]=masks
+        self.min_pt = torch.min(self.data[:,:,2])
+
         self.test_set = self.data[-len(test_set):].float()
         self.data = self.data[:-len(test_set)].float()
 
@@ -257,19 +260,19 @@ class JetNetDataloader(pl.LightningDataModule):
         return self.scaler.inverse_transform(data)
 
     def train_dataloader(self):
-        if not self.finetune:
-            dataset = Dataset_Bucketing(self.data[:,:self.n_part].numpy(), self.config["batch_size"])
-            dataloader = DataLoader(dataset, batch_size=None)
-            return dataloader
-            # bucket_dataset = BucketDataset(self.data, None)
-            # bucket_batch_sampler = BucketBatchSampler(bucket_dataset, self.config["batch_size"]) # <-- does not store X
-            # return DataLoader(bucket_dataset,batch_sampler=bucket_batch_sampler, shuffle=False, num_workers=40, drop_last=False)#DataLoader(self.data, collate_fn=custom_collate,batch_size=self.config["batch_size"],num_workers=40)
-        else:
+        # if not self.finetune:
+        #     dataset = Dataset_Bucketing(self.data[:,:self.n_part].numpy(), self.config["batch_size"])
+        #     dataloader = DataLoader(dataset, batch_size=None,num_workers=0)
+        #     return dataloader
+        #     # bucket_dataset = BucketDataset(self.data, None)
+        #     # bucket_batch_sampler = BucketBatchSampler(bucket_dataset, self.config["batch_size"]) # <-- does not store X
+        #     # return DataLoader(bucket_dataset,batch_sampler=bucket_batch_sampler, shuffle=False, num_workers=40, drop_last=False)#DataLoader(self.data, collate_fn=custom_collate,batch_size=self.config["batch_size"],num_workers=40)
+        # else:
 
-            return DataLoader(self.data[:,:self.n_part], batch_size=self.batch_size, shuffle=False, num_workers=40, drop_last=False)
+            return DataLoader(self.data[:,:150], batch_size=self.batch_size, shuffle=False, num_workers=16, drop_last=False)
 
     def val_dataloader(self):
-        return DataLoader(self.test_set[:,:self.n_part], batch_size=len(self.test_set), drop_last=True,num_workers=40)
+        return DataLoader(self.test_set[:,:150], batch_size=len(self.test_set), drop_last=True,num_workers=16)
 
 
 

@@ -4,27 +4,52 @@ metric:
   name: w1m
   goal: minimize
 parameters:
+  mean_field_loss:
+    values: [True,False]
+  ckpt:
+    values: [True,False]
+  dropout:
+    values: [0,.1,.2,.3]
+  parton:
+    values: ["q","g"]
   lr_d:
-    values: [0.0001,0.0002]
-  num_layers:
-    values: [2,4]
-  hidden:
-    values: [128,64]
-  heads:
-    values: [2,4,8]
-  opt:
-    distribution: categorical
-    values: ["Adam"]
-  n_part:
-    values: [150]
+    values: [0.0001]
+  hidden_gen:
+    values: [64,128]
   num_layers_gen:
-    values: [4,6,5]
+    values: [6,7,8]
+  batch_size:
+    values: [128,256]
   l_dim:
-    values: [10,64,128]
-  heads_gen:
-    values: [16,8,4]
-  beta1:
-    values: [0]
-  act:
-    values: ["leaky","gelu"]
+    values: [32,16,8]
+  l_dim_gen:
+    values: [32,16,8]
+  hidden:
+    values: [64,128]
+  num_layers:
+    values: [2,3,4]
+  # lr_d:
+  #   values: [0.0001,0.00001]
+  # num_layers:
+  #   values: [3]
+  # hidden:
+  #   values: [128]
+  # hidden_gen:
+  #   values: [128]
+  # heads:
+  #   values: [8,4]
+  # opt:
+  #   distribution: categorical
+  #   values: ["Adam"]
+  # n_part:
+  #   values: [150]
+  # num_layers_gen:
+  #   values: [6]
+
+  # heads_gen:
+  #   values: [8,16]
+  # beta1:
+  #   values: [0]
+  # act:
+  #   values: ["leaky","gelu"]
 
