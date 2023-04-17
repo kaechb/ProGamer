@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=allgpu,maxgpu
-#SBATCH --constraint='P100'|'V100'|'A100'
+#SBATCH --constraint='A100'
 #SBATCH --time=72:00:00                           # Maximum time requested
 #SBATCH --nodes=1                          # Number of nodes
 #SBATCH --chdir=/home/kaechben/slurm        # directory must already exist!
@@ -9,17 +9,18 @@
 #SBATCH --error=%j.err                # File to which STDERR will be written
 #SBATCH --mail-type=END                           # Type of email notification- BEGIN,END,FAIL,ALL
 #SBATCH --mail-user=max.muster@desy.de            # Email to which notifications will be sent. It defaults to <userid@mail.desy.de> if none is set.
+#'P100'|'V100'|
 export WANDB_API_KEY=f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
-export WANDB_PROJECT="progamer"
+export WANDB_PROJECT="linear"
 export WANDB_ENTITY="kaechben"
-
+export WANDB__SERVICE_WAIT=300
 unset LD_PRELOAD
 source /etc/profile.d/modules.sh
 module purge
 module load maxwell gcc/9.3
 module load anaconda3/5.2
 . conda-init
-conda activate jetnet2
+conda activate torch_jet
 path=ProGamer
 cd /home/$USER/$path/
 wandb login f39ea2cc30c7a621000b7fa3355a8c0e848a91d3
@@ -37,7 +38,7 @@ cp /home/$USER/$path/*.yaml /beegfs/desy/user/kaechben/code/${POSTFIX}
 # nodes_array=($nodes)
 # head_node=${nodes_array[0]}
 # head_node_ip=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
-wandb agent --count 1 owjnikup #1kx1wxl5  # big one for jetnet up to 150: 1no150ub
+wandb agent --count 1 bn0lxdnt #1kx1wxl5  # big one for jetnet up to 150: 1no150ub
 
 # echo $nodes
 # # if we detect a space character in the head node IP, we'll
@@ -64,7 +65,7 @@ wandb agent --count 1 owjnikup #1kx1wxl5  # big one for jetnet up to 150: 1no150
 # echo "Starting HEAD at $head_node"
 # srun --nodes=1 --ntasks=1 -w "$head_node" \
 #     ray start --temp-dir '/tmp/kaechben/ray' --head --node-ip-address="$head_node_ip" --port=$port \
-#    --block & 
+#    --block &
 
 # # optional, though may be useful in certain versions of Ray < 1.0.
 # sleep 1
@@ -77,7 +78,7 @@ wandb agent --count 1 owjnikup #1kx1wxl5  # big one for jetnet up to 150: 1no150
 #     echo "Starting WORKER $i at $node_i"
 #     srun --nodes=1 --ntasks=1 -w "$node_i" \
 #         ray start --temp-dir '/tmp/kaechben/ray' --address "$ip_head" \
-#          --block & 
+#          --block &
 #     sleep 5
 # done
 

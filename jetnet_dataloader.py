@@ -9,7 +9,7 @@ import torch
 from torch.utils.data import DataLoader
 #from sklearn.preprocessing import QuantileTransformer,PowerTransformer
 from helpers import *
-# import jetnet
+import jetnet
 import pytorch_lightning as pl
 #from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader,TensorDataset,Dataset,Sampler
@@ -17,7 +17,7 @@ import numpy as np
 from random import shuffle
 import numpy as np
 from torch.utils.data import IterableDataset
-
+from preprocess import center_jets_tensor
 def custom_collate(data): #(2)
         # x=torch.cat(torch.unsqueeze(data,0),)
 
@@ -225,20 +225,22 @@ class JetNetDataloader(pl.LightningDataModule):
         # This just sets up the dataloader, nothing particularly important. it reads in a csv, calculates mass and reads out the number particles per jet
         # And adds it to the dataset as variable. The only important thing is that we add noise to zero padded jets
 
-        if self.n_part==30:
-            data=jetnet.datasets.JetNet.getData(jet_type=self.config["parton"],split="train",num_particles=self.n_part,data_dir="/beegfs/desy/user/kaechben/datasets")[0]
-            test_set=jetnet.datasets.JetNet.getData(jet_type=self.config["parton"],split="valid",num_particles=self.n_part,data_dir="/beegfs/desy/user/kaechben/datasets")[0]
-        else:
-            data= np.load("/beegfs/desy/user/kaechben/datasets/{}_{}_train.npy".format(self.config["parton"],self.config["n_part"]))
-            test_set= np.load("/beegfs/desy/user/kaechben/datasets/{}_{}_valid.npy".format(self.config["parton"],self.config["n_part"]))
+
+        data=jetnet.datasets.JetNet.getData(jet_type=self.config["parton"],split="train",num_particles=self.n_part,data_dir="/beegfs/desy/user/kaechben/datasets")[0]
+        test_set=jetnet.datasets.JetNet.getData(jet_type=self.config["parton"],split="valid",num_particles=self.n_part,data_dir="/beegfs/desy/user/kaechben/datasets")[0]
+        # else:
+        #     data= np.load("/beegfs/desy/user/kaechben/datasets/{}_{}_train.npy".format(self.config["parton"],self.config["n_part"]))
+        #     test_set= np.load("/beegfs/desy/user/kaechben/datasets/{}_{}_valid.npy".format(self.config["parton"],self.config["n_part"]))
             #test_set,_=jetnet.datasets.JetNet.getData(jet_type=self.config["parton"],split="valid",num_particles=self.n_part,data_dir="/beegfs/desy/user/kaechben/datasets")
+
         data=torch.tensor(data)[:,:,:]
         test_set=torch.tensor(test_set)
         self.data=torch.cat((data,test_set),dim=0)
+        self.data[:,:,:3]= center_jets_tensor(self.data[:,:,:3][...,[2,0,1]])[...,[1,2,0]]
         if self.n_part>30:
             self.data[:,:,-1]=~self.data[:,:,-1].bool()
         self.n = self.data[:,:,-1].sum(axis=1)
-        masks=~(self.data[:,:,-1]).bool()
+        masks=(self.data[:,:,-1]).bool()
         self.scalers=[]
         self.scaler=StandardScaler()
         temp=self.data[:,:,:-1].reshape(-1,self.n_dim)
@@ -279,9 +281,10 @@ class JetNetDataloader(pl.LightningDataModule):
 if __name__=="__main__":
     config = {
         "n_part": 150,
+        "n_start": 150,
         "n_dim": 3,
         "batch_size": 1024,
-        "parton": "t",
+        "parton": "w",
         "smart_batching":True
      }
     x=JetNetDataloader(config)

@@ -28,7 +28,7 @@ from plotswb import *
 
 # from metrics import *
 from models import *
-import models_new as working
+import models2 as best
 FREQ=1
 class ProGamer(pl.LightningModule):
 
@@ -48,14 +48,13 @@ class ProGamer(pl.LightningModule):
         self.n_start=config["n_start"]
         self.part_increase=config["part_increase"]
         # self.cond_dim=config["cond_dim"]
-        if "fine_tune" in config.keys() and not config["fine_tune"]:
+        if config["best"]:
             self.gen_net = Gen(**config).cuda()
             self.dis_net =  Disc(**config).cuda()
         else:
+            self.gen_net = best.Gen(**config).cuda()
+            self.dis_net =  best.Disc(**config).cuda()
 
-            print("using working models")
-            self.gen_net = working.Gen(**config).cuda()
-            self.dis_net = working.Disc(**config).cuda()
         self.gan = kwargs["gan"]
         self.w1m_best= 0.2
         if self.gan=="ls":
@@ -115,7 +114,7 @@ class ProGamer(pl.LightningModule):
             with torch.no_grad():
                 z=torch.normal(torch.zeros(batch.shape[0],batch.shape[1],batch.shape[2]),torch.ones(batch.shape[0],batch.shape[1],batch.shape[2]))
         z[mask]*=0
-        fake=self.gen_net(z,mask=mask)
+        fake=self.gen_net(z,mask=mask, weight=False)
 
         fake[:,:,2]=F.relu(fake[:,:,2]-self.min_pt)+self.min_pt
         fake=fake*(~mask.bool()).unsqueeze(-1).float()
@@ -143,9 +142,9 @@ class ProGamer(pl.LightningModule):
         # Calculate probability of interpolated examples
 
         if self.mean_field_loss:
-            prob_interpolated,_,_ = self.dis_net(interpolated,mask=torch.zeros_like(mask).bool())
+            prob_interpolated,_,_ = self.dis_net(interpolated,mask=torch.zeros_like(mask).bool(), weight=False)
         else:
-            prob_interpolated = self.dis_net(interpolated,mask=torch.zeros_like(mask).bool())
+            prob_interpolated,_,_ = self.dis_net(interpolated,mask=torch.zeros_like(mask).bool(), weight=False)
 
         # Calculate gradients of probabilities with respect to examples
         gradients = torch_grad(outputs=prob_interpolated, inputs=interpolated,
@@ -168,16 +167,19 @@ class ProGamer(pl.LightningModule):
 
         self.min_pt=self.data_module.min_pt
         if self.opt == "Adam":
-            opt_g = torch.optim.Adam(self.gen_net.parameters(), lr=self.lr_g, betas=(0., 0.99), eps=1e-14)
-            opt_d = torch.optim.AdamW(self.dis_net.parameters(), lr=self.lr_d,betas=(0., 0.99), eps=1e-14, weight_decay=0.01)#
+            opt_g = torch.optim.Adam(self.gen_net.parameters(), lr=self.lr_g, betas=(0., 0.999), eps=1e-14)
+            opt_d = torch.optim.Adam(self.dis_net.parameters(), lr=self.lr_d,betas=(0., 0.999), eps=1e-14)#
+        elif self.opt == "AdamW":
+            opt_g = torch.optim.Adam(self.gen_net.parameters(), lr=self.lr_g, betas=(0., 0.999), eps=1e-14)
+            opt_d = torch.optim.AdamW(self.dis_net.parameters(), lr=self.lr_d,betas=(0., 0.999), eps=1e-14, weight_decay=0.01)#
         else:
             raise
         sched_d,sched_g=self.schedulers(opt_d,opt_g)
         return [opt_d, opt_g],[sched_d,sched_g]
 
     def schedulers(self,opt_d,opt_g):
-        sched_d=CosineWarmupScheduler(opt_d, 20*1000, 200*1000)
-        sched_g=CosineWarmupScheduler(opt_g, 20*1000, 200*1000)
+        sched_d=CosineWarmupScheduler(opt_d, 20, 2000*1000)
+        sched_g=CosineWarmupScheduler(opt_g, 20, 2000*1000)
         return sched_d,sched_g
 
     def train_disc(self,batch,mask,opt_d):
@@ -189,12 +191,12 @@ class ProGamer(pl.LightningModule):
         batch=batch*(~mask.bool()).unsqueeze(-1).float()
         fake=fake*(~mask.bool()).unsqueeze(-1).float()
         if self.mean_field_loss:
-            pred_real,mean_field,m_t = self.dis_net(batch, mask=mask)
-            pred_fake,_,m_f = self.dis_net(fake.detach(), mask=mask)
+            pred_real,mean_field,m_t = self.dis_net(batch, mask=mask, weight=False)
+            pred_fake,_,m_f = self.dis_net(fake.detach(), mask=mask, weight=False)
         else:
             mean_field=None
-            pred_real,_,_ = self.dis_net(batch, mask=mask)#mass=m_true
-            pred_fake,_,_ = self.dis_net(fake.detach(), mask=mask)
+            pred_real,_,_ = self.dis_net(batch, mask=mask, weight=False)#mass=m_true
+            pred_fake,_,_ = self.dis_net(fake.detach(), mask=mask, weight=False)
         pred_fake=pred_fake.reshape(-1)
         pred_real=pred_real.reshape(-1)
         if self.gan=="ls":
@@ -204,8 +206,11 @@ class ProGamer(pl.LightningModule):
             if self.global_step<2:
                     self.d_loss_mean=d_loss
             self.d_loss_mean=d_loss.detach()*0.01+0.99*self.d_loss_mean
-
-
+        elif self.gan=="hinge":
+            d_loss=F.relu(1-pred_real).mean()+F.relu(1+pred_fake).mean()
+            if self.global_step<2:
+                    self.d_loss_mean=d_loss
+            self.d_loss_mean=d_loss.detach()*0.01+0.99*self.d_loss_mean
         else:
             gp=self._gradient_penalty(batch, fake,mask=mask)
             d_loss=-pred_real.mean()+pred_fake.mean()
@@ -239,20 +244,20 @@ class ProGamer(pl.LightningModule):
         if mask is not None:
             fake=fake*(~mask).unsqueeze(-1)
         if mean_field is not None:
-            pred,mean_field_gen,_ = self.dis_net(fake, mask=mask )
+            pred,mean_field_gen,_ = self.dis_net(fake, mask=mask, weight=False)
             assert mean_field.shape==mean_field_gen.shape
 
             mean_field = self.mse(mean_field_gen,mean_field.detach()).mean()
             self._log_dict["Training/mean_field"]= mean_field
 
         else:
-            pred,_,_ = self.dis_net(fake, mask=mask, )
+            pred,_,_ = self.dis_net(fake, mask=mask, weight=False )
         pred=pred.reshape(-1)
         if self.gan=="ls":
             target=torch.ones_like(pred)
             g_loss=0.5*self.mse(pred,target).mean()
         else:
-            g_loss=-pred.mean()
+            g_loss=-0.5*pred.mean()
         if self.g_loss_mean is None:
             self.g_loss_mean=g_loss
         self.g_loss_mean=g_loss.detach()*0.01+0.99*self.g_loss_mean
@@ -300,8 +305,8 @@ class ProGamer(pl.LightningModule):
         with torch.no_grad():
             gen, fake_scaled, true_scaled = self.sampleandscale(batch,mask, scale=True)
             batch=batch*(~mask).unsqueeze(-1).float()
-            scores_real = self.dis_net(batch, mask=mask[:len(true_scaled)], )[0]
-            scores_fake = self.dis_net(gen[:len(true_scaled)], mask=mask[:len(true_scaled)], )[0]
+            scores_real = self.dis_net(batch, mask=mask[:len(true_scaled)], weight=False)[0]
+            scores_fake = self.dis_net(gen[:len(true_scaled)], mask=mask[:len(true_scaled)], weight=False )[0]
         fake_scaled[mask]=0
         true_scaled[mask[:len(true_scaled)]]=0
         for i in range(self.n_current):
@@ -335,7 +340,7 @@ class ProGamer(pl.LightningModule):
         except:
             self._log_dict = {}
             print("cov mmd failed")
-        print("epoch {}: ".format(self.current_epoch), self._log_dict)
+
         self.log("w1m",w1m_, on_step=False, prog_bar=False, logger=True)
         #self._log_dict["w1m"]=w1m_
         if w1m_<self.w1m_best:
@@ -353,3 +358,5 @@ class ProGamer(pl.LightningModule):
                 self._log_dict["fpnd"]=fpnd_best
         self._log_dict["n_current"]=self.n_current
         self.logger.log_metrics(self._log_dict, step=self.global_step)
+        self._log_dict["w1m"]=w1m_
+        print("epoch {}: ".format(self.current_epoch), self._log_dict)

@@ -5,29 +5,39 @@ metric:
   goal: minimize
 parameters:
   mean_field_loss:
-    values: [True,False]
+    values: [True]
+  opt:
+    values: ["Adam"]
+  gan:
+    values: ["hinge","wgan","ls"]
   ckpt:
-    values: [True,False]
+    values: [False]
   dropout:
-    values: [0,.1,.2,.3]
+    values: [.1]
   parton:
-    values: ["q","g"]
+    values: ["q","g","t","w","z"]
   lr_d:
     values: [0.0001]
+  lr_g:
+    values: [0.0001]
   hidden_gen:
-    values: [64,128]
+    values: [64]
   num_layers_gen:
-    values: [6,7,8]
+    values: [8]
   batch_size:
-    values: [128,256]
+    values: [128]
   l_dim:
-    values: [32,16,8]
+    values: [16]
   l_dim_gen:
-    values: [32,16,8]
+    values: [16]
   hidden:
-    values: [64,128]
+    values: [32]
   num_layers:
-    values: [2,3,4]
+    values: [2]
+  heads:
+    values: [2]
+  heads_gen:
+    values: [16]
   # lr_d:
   #   values: [0.0001,0.00001]
   # num_layers:

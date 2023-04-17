@@ -58,18 +58,31 @@ def train(config, ckpt=False,logger=None):
         model.ckpt=ckpt
         model.d_loss_mean=0
         model.g_loss_mean=0
-        model.mean_field_loss=False#config["mean_field_loss"]
+
+
+        model.mean_field_loss=config["mean_field_loss"]
         model.fine_tune=True#config["fine_tune"]
-        model.continue_training=True
+        model.continue_training=False
         #torch.nn.init.normal(model.dis_net.out.weight)
 
-        logger.log_hyperparams({"mean_field_loss":model.mean_field_loss,"fine_tune":model.fine_tune,"parton":model.parton,"ckpt":model.ckpt})
+        logger.log_hyperparams({"mean_field_loss":model.mean_field_loss,"fine_tune":model.fine_tune,"parton":model.parton,"ckpt":model.ckpt,"lr_g":config["lr_g"],"lr_d":config["lr_d"]})
 
     # this loads the data
+    model.lr_g=config["lr_g"]
+
+    model.lr_d=config["lr_g"]
     data_module = JetNetDataloader(config,finetune=model.fine_tune)
     data_module.setup("validation")
     model.data_module = data_module
-
+    callbacks = [
+        ModelCheckpoint(
+            monitor="w1m",
+            save_top_k=3,
+            mode="min",
+            filename="{epoch}-{w1m:.5f}",
+            every_n_epochs=1,
+        ),
+    ]
     # the sets up the model,  config are hparams we want to optimize
     trainer = pl.Trainer(
         devices=1,accelerator="gpu",
@@ -78,7 +91,7 @@ def train(config, ckpt=False,logger=None):
         max_epochs=20000,
         callbacks=callbacks,
         # progress_bar_refresh_rate=0,
-        val_check_interval=5000,  # config["val_check"],
+        val_check_interval=2000,  # config["val_check"],
         check_val_every_n_epoch=None,
         num_sanity_val_steps=0,  # gradient_clip_val=.02,
         enable_progress_bar=False,
@@ -97,12 +110,12 @@ def train(config, ckpt=False,logger=None):
     print("This is run: ", logger.experiment.name)
     # model.gen_net= torch.compile(model.gen_net, )
     # model.dis_net= torch.compile(model.dis_net, )
-    trainer.fit(model,datamodule=data_module,ckpt_path=ckpt)  # ckpt_path=config["ckpt_trafo"],,,
+    trainer.fit(model,datamodule=data_module)  # ckpt_path=config["ckpt_trafo"],,,
 
 
 if __name__ == "__main__":
 
-    parton = np.random.choice(["t"])  # "q","g",
+    parton = np.random.choice(["z"])  # "q","g",
 
     config = {
         # "activation_gen": "leaky",
@@ -114,12 +127,12 @@ if __name__ == "__main__":
         "dropout_gen": 0,
         "dropout": 0.1,
         "gan": "ls",
-        "heads": 8,
+        "heads": 2,
         "heads_gen": 16,
-        "hidden_gen": 128,
-        "hidden": 64,
-        "l_dim_gen": 32,
-        "l_dim": 32,
+        "hidden_gen": 64,
+        "hidden": 32,
+        "l_dim_gen": 16,
+        "l_dim": 16,
         "lr_d": 0.0001,
         "lr_g": 0.0001,
         "max_epochs": 2000,
@@ -127,7 +140,7 @@ if __name__ == "__main__":
         "n_part":150,
         "n_start": 150,
         "name": "ProGamer",
-        "num_layers_gen": 6,
+        "num_layers_gen": 8,
         "num_layers": 2,
         "opt": "Adam",
         "parton": parton,
@@ -143,22 +156,15 @@ if __name__ == "__main__":
 
     }
     # "load_ckpt_trafo":True,#'/home/kaechben/ProGamer/start_fpnd_022_w1m_08.ckpt',
-    wandb.init( )
+
+
     logger = WandbLogger(
         save_dir="/beegfs/desy/user/kaechben/pf_" + config["parton"],
         sync_tensorboard=False,
         project="linear",
     )  #
     logger.experiment.log_code(".")
-    callbacks = [
-        ModelCheckpoint(
-            monitor="w1m",
-            save_top_k=3,
-            mode="min",
-            filename="{epoch}-{fpnd:.3f}-{w1m:.4f}--{w1efp:.6f}",
-            every_n_epochs=1,
-        ),
-    ]
+
 
     if len(logger.experiment.config.keys()) > 0:
         config.update(**logger.experiment.config)
@@ -167,7 +173,8 @@ if __name__ == "__main__":
     #ckpt ="/beegfs/desy/user/kaechben/pf_t/linear/n4wdcpj0/checkpoints/epoch=406-fpnd=0.000-w1m=0.0013--w1efp=0.000000.ckpt"
      #ckpt="/beegfs/desy/user/kaechben/pf_t/linear/qobm3g4x/checkpoints/epoch=49-fpnd=0.000-w1m=0.0010--w1efp=0.000000.ckpt"
     # ckpt="/beegfs/desy/user/kaechben/pf_t/linear/rimc1ylb/checkpoints/epoch=74-fpnd=0.000-w1m=0.0017--w1efp=0.000000.ckpt"
-    if config["ckpt"]:
-        ckpt="/beegfs/desy/user/kaechben/pf_t/linear/nqxv9qxz/checkpoints/epoch=1221-fpnd=0.000-w1m=0.0006--w1efp=0.000000.ckpt"
+    #if config["ckpt"]:
+        #ckpt="/beegfs/desy/user/kaechben/pf_t/linear/nqxv9qxz/checkpoints/epoch=1221-fpnd=0.000-w1m=0.0006--w1efp=0.000000.ckpt"
+    #ckpt="/beegfs/desy/user/kaechben/pf_t/linear/mao7f3bq/checkpoints/epoch=5513-w1m=0.00020.ckpt"
     ckpt=None
     train(config, ckpt=ckpt,logger=logger)  # load_ckpt=ckptroot=root,
