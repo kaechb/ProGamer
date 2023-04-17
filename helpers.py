@@ -264,3 +264,91 @@ def masked_layer_norm(x, mask, eps = 1e-5):
     var_reshaped = var.unsqueeze(1).expand_as(x)    # (N, L, C)
     ins_norm = (x - mean_reshaped) / torch.sqrt(var_reshaped + eps)   # (N, L, C)
     return ins_norm
+
+
+def center_jets(data):   # assumse [batch, particles, features=[pt,y,phi])
+    etas = jet_etas(data)  # pseudorapdityt
+    phis = jet_phis(data)  # azimuthal angle
+    etas = etas[:,np.newaxis].repeat(repeats=data.shape[1], axis=1)
+    phis = phis[:,np.newaxis].repeat(repeats=data.shape[1], axis=1)
+    mask = data[...,0] > 0   # mask all particles with nonzero pt
+    data[mask,1] -= etas[mask]
+    data[mask,2] -= phis[mask]
+    return data
+
+
+# fixed centering of the jets
+def center_jets_tensor(data):   # assumse [batch, particles, features=[pt,y,phi])
+    etas = jet_etas(data)  # pseudorapdityt
+    phis = jet_phis(data)  # azimuthal angle
+    etas = etas[:,np.newaxis].expand(-1,data.shape[1])
+    phis = phis[:,np.newaxis].expand(-1,data.shape[1])
+    mask = data[...,0] > 0   # mask all particles with nonzero pt
+    data[...,1][mask] -= etas[mask]   # there is a bug here when calculating gradients
+    data[...,2][mask] -= phis[mask]
+    return data
+
+def torch_p4s_from_ptyphi(ptyphi):
+    # get pts, ys, phis
+    #ptyphi = torch.Tensor(ptyphi).float()
+    pts, ys, phis = (ptyphi[...,0,np.newaxis],
+                     ptyphi[...,1,np.newaxis],
+                     ptyphi[...,2,np.newaxis])
+
+    Ets = torch.sqrt(pts**2) #  + ms**2) # everything assumed massless
+    p4s = torch.cat((Ets*torch.cosh(ys), pts*torch.cos(phis),
+                          pts*torch.sin(phis), Ets*torch.sinh(ys)), axis=-1)
+    return p4s
+
+
+def torch_p4s_from_ptyphi(ptyphi):
+    # get pts, ys, phis
+    #ptyphi = torch.Tensor(ptyphi).float()
+    pts, ys, phis = (ptyphi[...,0,np.newaxis],
+                     ptyphi[...,1,np.newaxis],
+                     ptyphi[...,2,np.newaxis])
+
+    Ets = torch.sqrt(pts**2) #  + ms**2) # everything assumed massless
+    p4s = torch.cat((Ets*torch.cosh(ys), pts*torch.cos(phis),
+                          pts*torch.sin(phis), Ets*torch.sinh(ys)), axis=-1)
+    return p4s
+
+
+def jet_etas(jets_tensor):
+    jets_p4s = torch_p4s_from_ptyphi(jets_tensor)
+    etas = torch_etas_from_p4s(jets_p4s.sum(axis=1))
+    return etas
+
+def jet_phis(jets_tensor):
+    jets_p4s = torch_p4s_from_ptyphi(jets_tensor)
+    phis = torch_phis_from_p4s(jets_p4s.sum(axis=1), phi_ref=0)
+    return phis
+
+def torch_etas_from_p4s(p4s):
+    ## PSEUDO-RAPIDITY
+    out = torch.zeros(p4s.shape[:-1],device=p4s.device).float()
+    nz_mask = torch.any(p4s != 0., axis=-1)
+    nz_p4s = p4s[nz_mask]
+    out[nz_mask] = torch.atanh(nz_p4s[...,3]/torch.sqrt(nz_p4s[...,1]**2 + nz_p4s[...,2]**2 + nz_p4s[...,3]**2))
+    return out
+
+
+def torch_phi_fix(phis, phi_ref, copy=False):
+    TWOPI = 2*np.pi
+    diff = (phis - phi_ref)
+    new_phis = torch.copy(phis) if copy else phis
+    new_phis[diff > np.pi] -= TWOPI
+    new_phis[diff < -np.pi] += TWOPI
+    return new_phis
+
+
+def torch_phis_from_p4s(p4s, phi_ref=None, _pts=None, phi_add2pi=True):
+    # get phis
+    phis = torch.atan2(p4s[...,2], p4s[...,1])
+    if phi_add2pi:
+        phis[phis<0] += 2*np.pi
+    # ensure close to reference value
+    if phi_ref is not None:
+        phis = torch_phi_fix(phis, phi_ref, copy=False)
+
+    return phis
